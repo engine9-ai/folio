@@ -1,0 +1,70 @@
+import { ConflictError, FolioError } from './errors.js';
+
+/**
+ * FolioFs is the storage port. A folio never touches a disk or bucket directly,
+ * so the same code runs on a local folder, in memory, or on R2.
+ *
+ *   read(path)                -> { text, etag } | null
+ *   write(path, text, opts)   -> { etag }
+ *       opts.ifMatch: undefined = overwrite, null = create only, string = etag must match
+ *   exists(path)              -> boolean
+ *   list(prefix = '')         -> sorted array of file paths below prefix (recursive)
+ *   remove(path)              -> void
+ *
+ * Paths are folio-relative with forward slashes. Text only in this version.
+ */
+
+export function normalizePath(path) {
+  if (typeof path !== 'string' || path === '') throw new FolioError('bad_path', 'Path must be a non-empty string');
+  if (path.includes('\\') || path.includes('\0')) throw new FolioError('bad_path', `Unsafe path: ${path}`);
+  if (path.startsWith('/')) throw new FolioError('bad_path', `Path must be relative: ${path}`);
+  const parts = path.split('/').filter((p) => p !== '');
+  if (parts.length === 0) throw new FolioError('bad_path', 'Empty path');
+  if (parts.some((p) => p === '.' || p === '..')) throw new FolioError('bad_path', `Path may not contain . or ..: ${path}`);
+  return parts.join('/');
+}
+
+function normalizePrefix(prefix) {
+  if (!prefix) return '';
+  const parts = String(prefix).split('/').filter((p) => p !== '');
+  if (parts.some((p) => p === '.' || p === '..')) throw new FolioError('bad_path', `Unsafe prefix: ${prefix}`);
+  return parts.length ? parts.join('/') + '/' : '';
+}
+
+export class MemoryFs {
+  constructor(files = {}) {
+    this.files = new Map();
+    this.counter = 0;
+    for (const [path, text] of Object.entries(files)) {
+      this.files.set(normalizePath(path), { text, etag: `v${++this.counter}` });
+    }
+  }
+
+  async read(path) {
+    const f = this.files.get(normalizePath(path));
+    return f ? { text: f.text, etag: f.etag } : null;
+  }
+
+  async write(path, text, { ifMatch } = {}) {
+    const p = normalizePath(path);
+    const current = this.files.get(p);
+    if (ifMatch === null && current) throw new ConflictError(p, `${p} already exists`);
+    if (typeof ifMatch === 'string' && (!current || current.etag !== ifMatch)) throw new ConflictError(p);
+    const etag = `v${++this.counter}`;
+    this.files.set(p, { text, etag });
+    return { etag };
+  }
+
+  async exists(path) {
+    return this.files.has(normalizePath(path));
+  }
+
+  async list(prefix = '') {
+    const pre = normalizePrefix(prefix);
+    return [...this.files.keys()].filter((k) => k.startsWith(pre)).sort();
+  }
+
+  async remove(path) {
+    this.files.delete(normalizePath(path));
+  }
+}

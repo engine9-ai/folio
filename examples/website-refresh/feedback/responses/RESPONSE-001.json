@@ -1,0 +1,27 @@
+{
+  "id": "RESPONSE-001",
+  "form": "FORM-001",
+  "form_revision": 1,
+  "received_at": "2026-10-08T09:30:00Z",
+  "respondent": {
+    "name": "Pat",
+    "email": "pat@customer.example",
+    "identity": "invited_reviewer"
+  },
+  "context": {
+    "artifact": "ART-001",
+    "version": "001",
+    "url": "/preview/index.html",
+    "viewport": "390x844",
+    "device": "iPhone"
+  },
+  "answers": {
+    "q1": 3,
+    "q2": "On my phone the primary button overlaps the password field."
+  },
+  "disposition": {
+    "state": "accepted",
+    "note": "Real defect, tracked.",
+    "ticket": "TK-005"
+  }
+}

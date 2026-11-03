@@ -1,0 +1,12 @@
+{
+  "ticket": "TK-004",
+  "revision": 1,
+  "at": "2026-09-02T03:00:00.000Z",
+  "actor": {
+    "type": "user",
+    "id": "sam@example.com",
+    "name": "Sam (account manager)"
+  },
+  "via": "example",
+  "type": "created"
+}

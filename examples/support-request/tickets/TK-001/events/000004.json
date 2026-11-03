@@ -1,0 +1,26 @@
+{
+  "ticket": "TK-001",
+  "revision": 4,
+  "at": "2026-11-02T21:00:00.000Z",
+  "actor": {
+    "type": "user",
+    "id": "robin@example.com",
+    "name": "Robin (engineer)"
+  },
+  "via": "example",
+  "type": "status_changed",
+  "changes": {
+    "status": {
+      "from": "in_progress",
+      "to": "closed"
+    },
+    "resolution": {
+      "from": null,
+      "to": "completed"
+    },
+    "resolution_note": {
+      "from": null,
+      "to": "Replaced the lookbehind with a split. Verified on Safari 16 and 17. Customer confirmed donations succeed."
+    }
+  }
+}

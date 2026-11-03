@@ -1,0 +1,16 @@
+{
+  "id": "DEC-001",
+  "title": "Keep the existing teal as the primary colour",
+  "date": "2026-09-11",
+  "decided_by": "Pat (customer) with Sam (account manager)",
+  "status": "accepted",
+  "related_tickets": [
+    "TK-002"
+  ],
+  "sources": [
+    {
+      "label": "Customer's brand guidance",
+      "path": "sources/email/2026-09-10-customer-brand-guidance.eml"
+    }
+  ]
+}

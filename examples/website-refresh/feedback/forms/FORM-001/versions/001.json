@@ -1,0 +1,22 @@
+{
+  "id": "FORM-001",
+  "revision": 1,
+  "title": "Sign-in prototype review",
+  "target": {
+    "artifact": "ART-001",
+    "version": "001"
+  },
+  "fields": [
+    {
+      "id": "q1",
+      "type": "rating",
+      "label": "How clear is the sign-in screen?",
+      "required": true
+    },
+    {
+      "id": "q2",
+      "type": "long_text",
+      "label": "What would you change?"
+    }
+  ]
+}

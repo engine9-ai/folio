@@ -1,0 +1,28 @@
+{
+  "id": "ART-001",
+  "name": "Sign-in prototype",
+  "type": "static_website",
+  "purpose": "Review the new sign-in flow",
+  "review_state": "changes_requested",
+  "current_version": "002",
+  "related_tickets": [
+    "TK-002"
+  ],
+  "versions": [
+    {
+      "version": "001",
+      "published_at": "2026-10-05T16:00:00Z",
+      "publisher": "robin@example.com",
+      "entry": "index.html",
+      "review_state": "superseded"
+    },
+    {
+      "version": "002",
+      "published_at": "2026-10-19T16:00:00Z",
+      "publisher": "robin@example.com",
+      "entry": "index.html",
+      "review_state": "ready_for_review"
+    }
+  ],
+  "external_dependencies": []
+}

@@ -1,0 +1,33 @@
+{
+  "id": "TK-005",
+  "title": "Primary button overlaps password field on mobile",
+  "type": "bug",
+  "status": "open",
+  "priority": "high",
+  "outcome": "Button and field never overlap at 390px width.",
+  "links": [
+    {
+      "type": "feedback",
+      "label": "Pat's review",
+      "path": "feedback/responses/RESPONSE-001.json"
+    },
+    {
+      "type": "artifact_version",
+      "label": "Prototype v1 (as reviewed)",
+      "path": "artifacts/ART-001/versions/001/index.html"
+    }
+  ],
+  "relationships": [
+    {
+      "type": "parent",
+      "target": "TK-002"
+    },
+    {
+      "type": "discovered_from",
+      "target": "TK-002"
+    }
+  ],
+  "revision": 3,
+  "created_at": "2026-09-02T09:00:00.000Z",
+  "updated_at": "2026-09-02T11:00:00.000Z"
+}

@@ -1,0 +1,13 @@
+{
+  "note": "Aliases only. Live connections are configured by the hosting service, never stored here.",
+  "connections": [
+    {
+      "alias": "support-data",
+      "type": "mcp"
+    },
+    {
+      "alias": "docs",
+      "type": "mcp"
+    }
+  ]
+}

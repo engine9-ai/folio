@@ -1,0 +1,63 @@
+{
+  "format": "folio",
+  "format_revision": 1,
+  "id": "fol-refresh",
+  "title": "Customer portal refresh",
+  "summary": "Redesign sign-in and account pages, migrate content, and launch by the end of January.",
+  "status": "active",
+  "created_at": "2026-09-01T16:00:00.000Z",
+  "updated_at": "2026-09-01T23:00:00.000Z",
+  "tags": [
+    "website",
+    "design"
+  ],
+  "outcome": "New portal live by 2027-01-30 with sign-in issues resolved.",
+  "key_dates": [
+    {
+      "label": "Launch",
+      "date": "2027-01-30"
+    }
+  ],
+  "connections": [
+    {
+      "type": "mcp",
+      "alias": "support-data",
+      "purpose": "Read-only customer support context",
+      "access": "read_only"
+    },
+    {
+      "type": "mcp",
+      "alias": "docs",
+      "purpose": "Customer documentation search"
+    }
+  ],
+  "repositories": [
+    {
+      "provider": "github",
+      "repository": "example/customer-portal",
+      "url": "https://github.com/example/customer-portal",
+      "purpose": "Portal application",
+      "role": "primary",
+      "default_branch": "main",
+      "added_at": "2026-09-01T18:00:00.000Z",
+      "added_by": "robin@example.com"
+    },
+    {
+      "provider": "github",
+      "repository": "example/design-system",
+      "url": "https://github.com/example/design-system",
+      "purpose": "Shared components used by the portal",
+      "role": "secondary",
+      "added_at": "2026-09-01T20:00:00.000Z",
+      "added_by": "robin@example.com"
+    },
+    {
+      "provider": "git",
+      "url": "https://git.example.org/customer/legacy-portal.git",
+      "purpose": "Old portal, read for migration only",
+      "role": "reference",
+      "added_at": "2026-09-01T22:00:00.000Z",
+      "added_by": "robin@example.com"
+    }
+  ]
+}
