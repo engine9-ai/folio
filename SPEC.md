@@ -3,7 +3,9 @@
 
 > **Status.** This is the working specification as finalised in the 2 November 2026 product conversation. It supersedes the earlier draft. It remains a living document: where a decision here conflicts with an earlier idea, this document wins. Scope for the first release is in [section 19](#19-version-1-scope-and-deferred-work).
 >
-> **Changes from the draft:** git repository listing is a core part of the folio model (3.2.1); email intake and Slack capture are out of version 1; the preview-isolation requirement is kept but its implementation is a tracked TODO; hosting is a single production environment at `folio.engine9.ai`.
+> **Changes on 6 November 2026:** tickets carry **tags** (5.1; the older `labels` field still reads); adding anything to a folio goes through one routing rule owned by the library (8.6), used by drag and drop, uploads, the CLI and email forwarding; email forwarding to a folio's address is in version 1 (8.1); permissions live only in the hosting service (11.1).
+>
+> **Changes from the draft:** git repository listing is a core part of the folio model (3.2.1); Slack capture is out of version 1; the preview-isolation requirement is kept but its implementation is a tracked TODO; hosting is a single production environment at `folio.engine9.ai`.
 
 **Purpose:** A shared, human-operated workspace for bounded pieces of work, customer communication, tickets, feedback, evidence, and deliverables. Folios are understandable and usable by people and by external AI agents.
 
@@ -125,6 +127,7 @@ folios/
 
     sources/
       email/
+      links/
       slack/
       github/
       uploads/
@@ -133,6 +136,7 @@ folios/
     integrations/
       references.json
     history/
+      intake/
     indexes/
 ```
 
@@ -148,7 +152,7 @@ The directory layout is a convention rather than a rigid empty scaffold. Only `f
 - Concise summary, purpose, and desired outcome.
 - Lifecycle status.
 - Creation and last meaningful update timestamps.
-- Optional tags, categories, and key dates.
+- Optional folio-level tags, categories, and key dates (for finding folios; tickets carry their own tags, 5.1).
 - Optional non-secret repository references, connection aliases, and related external URLs.
 - Optional pointers to noteworthy files or current artifacts.
 - A declared folio data-format revision for readers that understand structured fields.
@@ -285,7 +289,7 @@ Every ticket should have:
 - Type, status, priority, and creation/update dates.
 - Current responsible person or team, when known.
 - A clear requested outcome or resolution criterion.
-- Optional target date, labels, and participants.
+- Optional target date, **tags**, and participants. Tags are free-form words stored on the ticket (`"tags": ["payments", "safari"]` in `ticket.json`), used to group and filter tickets. Priority is a separate field, not a tag. Older files may use `labels`; readers treat it as `tags`, and the next edit through the library writes `tags`.
 - Links to evidence, decisions, other tickets, and artifact versions.
 - Portable comments and a change history.
 
@@ -438,7 +442,9 @@ Sources provide the original context for work. The product should preserve origi
 
 ### 8.1 Email
 
-> **Not in version 1.** Email intake is deferred. Original emails can still be added by hand as `.eml` files under `sources/email/`. Automated intake will need Cloudflare Email Routing and, for asynchronous processing, Cloudflare Queues; neither is set up yet.
+> **In version 1:** an email reaches a folio in three ways, all filed by the same rule (8.6): **forwarding** it to the folio's intake address (`<folio-id>@<intake domain>`, or `<folio-id>+TK-001@…` to attach it to a ticket), **dragging** it from a desktop mail client (Apple Mail, Outlook, Thunderbird give the browser an `.eml` or `.msg` file), or adding an `.eml` file by hand. The hosting service accepts a forwarded email only from a sender who may write to that folio. Not yet: thread matching for replies, and splitting a forwarded wrapper from the original it carries.
+>
+> Each email is stored once, as received, at `sources/email/<date>-<subject>-<hash>.eml` (Outlook `.msg` files keep their own format). The date is the email's own `Date`, the hash comes from its `Message-ID` (or its bytes), so a second delivery of the same message is recognised and not stored again. The header summary (from, to, subject, date, message id) is read from the file whenever it is needed, and recorded with the intake provenance in `history/intake/`.
 
 Each folio may receive relevant support emails through an assigned intake address, forwarding rule, or explicit import. Inbound email should be retained as an original message, with useful metadata such as sender, recipients, date, subject, message identifier, thread identity, and attachments.
 
@@ -469,6 +475,25 @@ People should be able to add documents, screenshots, meeting notes, exports, and
 A ticket, decision, status update, or feedback disposition may cite several sources. The UI should expose those citations with readable labels. Agents should be able to retrieve the underlying evidence to avoid repeating or amplifying an unsupported claim.
 
 ---
+
+### 8.6 Adding items: one routing rule
+
+Whatever adds something to a folio (a drag and drop in the browser, an upload, a forwarded email, the CLI, an agent) hands the item to the library's intake (`folio.add(item)`), and **the library decides where it belongs**. Interfaces never choose storage paths themselves, so a folio filled through any of them looks the same.
+
+| Item | Recognised by | Goes to |
+|---|---|---|
+| Git repository | A GitHub, GitLab or Bitbucket URL (including links to an issue, pull request or file inside one), an `ssh://`/`git@` address, or a URL ending in `.git` | Listed in `folio.json` `repositories` (3.2.1). Already listed: reported, not duplicated. |
+| Email | `.eml` / `message/rfc822`, Outlook `.msg`, or text that starts with an email header block | `sources/email/` (8.1) |
+| Other link | Any other URL (also `.webloc` and `.url` shortcut files) | `sources/links/<date>-<site>-<hash>.json`, holding the URL and who added it |
+| Text | Dropped or pasted text that is not a URL | `notes/<date>-<first line>.md` |
+| File | Anything else | `sources/uploads/` (8.4), keeping a dropped folder's structure; a name already in use gets a number ("report 2.pdf") |
+
+Where it was dropped refines this:
+
+- **On a ticket:** files go to `tickets/<id>/attachments/`; emails still go to `sources/email/`; the ticket gets a link to each (`links`, with a `linked` event in its history). A link is recorded on the ticket instead of `sources/links/`. Text becomes a comment.
+- **On a folder:** files go into that folder (a folder inside a ticket means that ticket's attachments). Emails, repositories and links still go to their own places.
+
+Every stored item except a repository listing (which records `added_by` and `added_at` itself) gets a small provenance record in `history/intake/`: when, by whom, through which interface, its original name and type.
 
 ## 9. Decisions, notes, and durable context
 
@@ -524,7 +549,7 @@ Emails, form submissions, Slack messages, uploaded files, repository content, an
 
 The identity ecosystem is **Delegate** for human authentication (reached through `@engine9/core`, which owns the session and roles), **Core** for people and membership infrastructure, and **Core Agent Credentials** for authorising external agents. These capabilities serve the product; they are not part of the portable folio format.
 
-A folio is always hosted within an account context, but account membership is managed by the platform. The directory must never contain live permission grants as its authority.
+A folio is always hosted within an account context, but account membership is managed by the platform. The directory must never contain live permission grants as its authority. **In this version a folio holds no permission information at all**: accounts, members, folio access levels, restricted folios and agent grants live only in the hosting service (`folio-server`'s D1 control plane). Copying or exporting a folio carries none of them.
 
 ### 11.2 Roles and access
 
@@ -749,13 +774,15 @@ A successful folio stands on its own. The hosted application provides a pleasant
 - Hosting at `folio.engine9.ai` on Cloudflare: folios in R2, a D1 control plane for accounts, folio location and access rules.
 - Sign-in through Delegate via `@engine9/core`; account and folio permissions; conflict-safe editing.
 - An MCP endpoint over the same folio content, with scoped, revocable agent access.
-- A basic browser workspace: folio list, overview, tickets (including Ready), repositories, files.
+- A browser workspace laid out like a Finder window: folio list, the folio's folder, tickets (with readiness and tags), repositories, files, sharing.
+- Drag and drop (and upload) into a folio, filed by the library's routing rule (8.6).
+- Email forwarding to a folio's intake address (8.1).
 
 ### Deferred, and what will be needed
 
 | Item | Status | What it needs |
 |---|---|---|
-| Email intake (8.1) | Out of v1 | Cloudflare Email Routing and an intake domain; Queues for asynchronous processing. **The owner must set these up.** |
+| Email forwarding (8.1) | Built; needs switching on | Cloudflare Email Routing on the intake domain with a catch-all rule sending to the `folio` Worker. **The owner sets this up in the Cloudflare dashboard.** Thread matching for replies and Queues for heavy processing come later. |
 | Slack capture (8.2) | Version 2 | A Slack app and workspace authorisation. |
 | Automated GitHub retrieval | Not planned for v1 | Repository listing (3.2.1) is complete without it. |
 | Static website previews (7.3) | Blocked on a TODO | A separate registrable preview domain (see 7.4). |

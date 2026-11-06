@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { Folio } from '../src/folio.js';
 import { NodeFs } from '../src/node-fs.js';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat } from 'node:fs/promises';
+import { basename, join, relative } from 'node:path';
 
 const USAGE = `folio: work with folio folders
 
@@ -9,10 +10,13 @@ const USAGE = `folio: work with folio folders
   folio validate <dir>
   folio overview <dir>
   folio ready <dir>
-  folio ticket new <dir> --title "..." [--type bug] [--priority high] [--description "..."]
+  folio add <dir> <file | folder | url | "text"> ... [--ticket TK-001] [--folder notes]
+      files the item where it belongs: repo URL -> repositories, .eml -> sources/email,
+      other links -> sources/links, text -> notes, files -> sources/uploads (or the ticket)
+  folio ticket new <dir> --title "..." [--type bug] [--priority high] [--tags "a, b"] [--description "..."]
   folio ticket list <dir>
   folio ticket show <dir> <TK-001>
-  folio ticket set <dir> <TK-001> --status in_progress [--priority ...] [--owner ...]
+  folio ticket set <dir> <TK-001> --status in_progress [--priority ...] [--owner ...] [--tags "a, b"]
   folio ticket relate <dir> <TK-001> <parent|blocked_by|related|discovered_from|duplicate_of|supersedes> <TK-002>
   folio repo add <dir> <owner/name | url> [--purpose "..."] [--role primary]
   folio repo list <dir>
@@ -72,6 +76,24 @@ async function main() {
   }
   if (cmd === 'search') return out(await folio.search(args.join(' ')));
 
+  if (cmd === 'add') {
+    if (!args.length) throw new Error('usage: folio add <dir> <file | folder | url | "text"> ...');
+    const opts = { actor, via, ...(flags.ticket ? { ticket: String(flags.ticket) } : {}), ...(flags.folder ? { folder: String(flags.folder) } : {}) };
+    const items = [];
+    const walk = async (abs, root) => {
+      const st = await stat(abs);
+      if (st.isDirectory()) for (const e of await readdir(abs)) await walk(join(abs, e), root);
+      else items.push({ name: basename(abs), path: root ? relative(root, abs) : undefined, data: new Uint8Array(await readFile(abs)) });
+    };
+    for (const a of args) {
+      const st = await stat(a).catch(() => null);
+      if (!st) items.push({ text: a });
+      else await walk(a, st.isDirectory() ? join(a, '..') : null);
+    }
+    for (const item of items) for (const r of await folio.add(item, opts)) console.log(`${r.kind.padEnd(10)} ${r.summary}`);
+    return;
+  }
+
   if (cmd === 'repo') {
     const [sub, ...a] = args;
     if (sub === 'list') {
@@ -88,7 +110,7 @@ async function main() {
     const [sub, ...a] = args;
     if (sub === 'new') {
       if (!flags.title) throw new Error('--title is required');
-      return out(await folio.createTicket({ title: String(flags.title), type: flags.type && String(flags.type), priority: flags.priority && String(flags.priority), description: flags.description && String(flags.description) }, { actor, via }));
+      return out(await folio.createTicket({ title: String(flags.title), type: flags.type && String(flags.type), priority: flags.priority && String(flags.priority), tags: flags.tags && String(flags.tags), description: flags.description && String(flags.description) }, { actor, via }));
     }
     if (sub === 'list') {
       for (const t of await folio.ticketViews()) console.log(`${t.id}  ${t.status.padEnd(11)} ${t.readiness.state.padEnd(11)} [${t.priority}]  ${t.title}`);
@@ -97,7 +119,7 @@ async function main() {
     if (sub === 'show') return out({ ...(await folio.ticketViews()).find((t) => t.id === a[0]), events: await folio.ticketEvents(a[0]) });
     if (sub === 'set') {
       const patch = {};
-      for (const k of ['status', 'priority', 'owner', 'type', 'title', 'resolution', 'resolution_note']) if (flags[k] !== undefined) patch[k] = String(flags[k]);
+      for (const k of ['status', 'priority', 'owner', 'type', 'title', 'resolution', 'resolution_note', 'tags']) if (flags[k] !== undefined) patch[k] = String(flags[k]);
       return out(await folio.updateTicket(a[0], patch, { actor, via }));
     }
     if (sub === 'relate') return out(await folio.relate(a[0], a[1], a[2], { actor, via }));

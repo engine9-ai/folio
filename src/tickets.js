@@ -19,6 +19,9 @@ export function validateTicket(t, path = 'ticket.json') {
   if (!Number.isInteger(t.revision) || t.revision < 1) err('ticket_revision', 'revision must be a positive integer');
   if (t.status === 'closed' && !t.resolution) err('ticket_resolution', 'a closed ticket needs a resolution');
   for (const k of ['created_at', 'updated_at']) if (Number.isNaN(Date.parse(t[k]))) err('ticket_date', `${k} must be an ISO timestamp`);
+  for (const k of ['tags', 'labels']) {
+    if (t[k] !== undefined && (!Array.isArray(t[k]) || t[k].some((x) => typeof x !== 'string'))) err('ticket_tags', `${k} must be an array of strings`);
+  }
   if (t.relationships !== undefined) {
     if (!Array.isArray(t.relationships)) err('ticket_relationships', 'relationships must be an array');
     else

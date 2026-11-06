@@ -26,14 +26,25 @@ export class NodeFs {
 
   async read(path) {
     try {
-      const text = await fsp.readFile(this.abs(path), 'utf8');
-      return { text, etag: etagOf(text) };
+      const buf = await fsp.readFile(this.abs(path));
+      return { text: buf.toString('utf8'), etag: etagOf(buf) }; // same etag as readBytes and write
     } catch (e) {
       if (e.code === 'ENOENT' || e.code === 'EISDIR') return null;
       throw e;
     }
   }
 
+  async readBytes(path) {
+    try {
+      const bytes = new Uint8Array(await fsp.readFile(this.abs(path)));
+      return { bytes, etag: etagOf(bytes) };
+    } catch (e) {
+      if (e.code === 'ENOENT' || e.code === 'EISDIR') return null;
+      throw e;
+    }
+  }
+
+  /** `text` may be a string (UTF-8) or a Uint8Array. */
   async write(path, text, { ifMatch } = {}) {
     const full = this.abs(path);
     await fsp.mkdir(dirname(full), { recursive: true });

@@ -4,14 +4,17 @@ import { ConflictError, FolioError } from './errors.js';
  * FolioFs is the storage port. A folio never touches a disk or bucket directly,
  * so the same code runs on a local folder, in memory, or on R2.
  *
- *   read(path)                -> { text, etag } | null
- *   write(path, text, opts)   -> { etag }
+ *   read(path)                -> { text, etag } | null      (UTF-8 text)
+ *   readBytes(path)           -> { bytes, etag } | null     (optional; original bytes)
+ *   write(path, data, opts)   -> { etag }
+ *       data: a string (written as UTF-8) or a Uint8Array (written as is)
  *       opts.ifMatch: undefined = overwrite, null = create only, string = etag must match
+ *       opts.contentType: optional media type, for stores that keep one
  *   exists(path)              -> boolean
  *   list(prefix = '')         -> sorted array of file paths below prefix (recursive)
  *   remove(path)              -> void
  *
- * Paths are folio-relative with forward slashes. Text only in this version.
+ * Paths are folio-relative with forward slashes.
  */
 
 export function normalizePath(path) {
@@ -42,7 +45,12 @@ export class MemoryFs {
 
   async read(path) {
     const f = this.files.get(normalizePath(path));
-    return f ? { text: f.text, etag: f.etag } : null;
+    return f ? { text: typeof f.text === 'string' ? f.text : new TextDecoder().decode(f.text), etag: f.etag } : null;
+  }
+
+  async readBytes(path) {
+    const f = this.files.get(normalizePath(path));
+    return f ? { bytes: typeof f.text === 'string' ? new TextEncoder().encode(f.text) : f.text, etag: f.etag } : null;
   }
 
   async write(path, text, { ifMatch } = {}) {
@@ -51,7 +59,7 @@ export class MemoryFs {
     if (ifMatch === null && current) throw new ConflictError(p, `${p} already exists`);
     if (typeof ifMatch === 'string' && (!current || current.etag !== ifMatch)) throw new ConflictError(p);
     const etag = `v${++this.counter}`;
-    this.files.set(p, { text, etag });
+    this.files.set(p, { text: typeof text === 'string' ? text : new Uint8Array(text), etag });
     return { etag };
   }
 

@@ -16,6 +16,7 @@ node bin/folio.js init ./my-folio --title "Broken donation form"
 node bin/folio.js repo add ./my-folio engine9-ai/folio-server --purpose "Server" --role primary
 node bin/folio.js ticket new ./my-folio --title "Donate button spins" --type bug --priority urgent
 node bin/folio.js ticket relate ./my-folio TK-002 blocked_by TK-001
+node bin/folio.js add ./my-folio report.eml https://github.com/a/b screenshot.png   # filed where each belongs
 node bin/folio.js ready ./my-folio        # what could someone start now?
 node bin/folio.js validate ./my-folio     # broken references, loops, secrets, unattested edits
 ```
@@ -30,6 +31,11 @@ const folio = await Folio.open(new NodeFs('./examples/website-refresh'));
 const ready = await folio.readyTickets();           // each carries a plain-language reason
 await folio.updateTicket('TK-002', { status: 'in_progress' }, { actor: { type: 'user', id: 'sam' }, expectedRevision: 1 });
 const { ok, problems } = await folio.validate();
+
+// Add anything; the folio decides where it goes (SPEC 8.6).
+await folio.add({ url: 'https://github.com/engine9-ai/folio' }, { actor });             // listed in folio.json
+await folio.add({ name: 'report.eml', data: emlBytes }, { actor });                      // sources/email/
+await folio.add({ name: 'screenshot.png', data: pngBytes }, { actor, ticket: 'TK-002' }); // ticket attachment, linked
 ```
 
 Behaviours worth knowing:
@@ -38,7 +44,10 @@ Behaviours worth knowing:
 - **Inverse relationships are computed**, never stored, so they cannot drift from the files.
 - **Repository listing is by reference.** Entries in `folio.json` work with no integration; every entry reads as `reference_only` in this library.
 - **Unknown fields are preserved** when tickets and manifests are edited.
-- **Text only.** Binary artifacts are not read or written by this version of the library.
+- **Intake routing lives here.** `folio.add(item, { ticket, folder })` recognises repositories, emails, links, text and files and puts each in the right place, with provenance under `history/intake/`. Hosts (the browser, email forwarding, MCP, the CLI) only hand items over.
+- **Binary files.** `write(path, data)` takes a string or a `Uint8Array`; stores may add `readBytes(path)`. Ticket and manifest files stay JSON text.
+- **Tickets carry tags** (`tags` in `ticket.json`); the older `labels` field still reads.
+- **No permissions in a folio.** Access rules belong to the hosting service.
 - `NodeFs` overwrites are check-then-write; protect against other processes writing the same folder yourself.
 
 ## Develop

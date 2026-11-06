@@ -3,14 +3,26 @@ import { createManifest, validateManifest } from './manifest.js';
 import { addRepositoryTo, describeRepository, removeRepositoryFrom } from './repositories.js';
 import { buildGraph, isTicketId, RELATIONSHIP_TYPES, readiness, validateTicket, wouldCycle } from './tickets.js';
 import { validateFolio } from './validate.js';
+import { addItem, classify } from './intake.js';
 
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
 const pad = (n) => String(n).padStart(6, '0');
 const TEXT_EXT = /\.(md|json|txt|eml|csv|html|css|js)$/i;
 
-const EDITABLE = ['title', 'type', 'status', 'priority', 'owner', 'outcome', 'target_date', 'labels', 'hold', 'waiting_on', 'resolution', 'resolution_note', 'links', 'participants'];
+const EDITABLE = ['title', 'type', 'status', 'priority', 'owner', 'outcome', 'target_date', 'tags', 'hold', 'waiting_on', 'resolution', 'resolution_note', 'links', 'participants'];
 
 const defaultActor = { type: 'unknown' };
+
+/** Tags as written: trimmed, unique, in order. Accepts an array or a comma-separated string; `labels` is the older name. */
+export function normalizeTags(v) {
+  const list = Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [];
+  const out = [];
+  for (const t of list.map((x) => String(x).trim()).filter(Boolean)) if (!out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t.slice(0, 40));
+  return out;
+}
+const ticketTagsFrom = (input) => normalizeTags(input.tags ?? input.labels);
+/** A ticket's tags, reading the older `labels` field when `tags` is absent. */
+export const ticketTags = (t) => normalizeTags(t?.tags ?? t?.labels);
 
 export class Folio {
   /** @param fs a FolioFs (MemoryFs, NodeFs, or a hosted store) */
@@ -120,7 +132,7 @@ export class Folio {
       ...(input.owner ? { owner: input.owner } : {}),
       ...(input.outcome ? { outcome: input.outcome } : {}),
       ...(input.target_date ? { target_date: input.target_date } : {}),
-      ...(input.labels ? { labels: input.labels } : {}),
+      ...(ticketTagsFrom(input).length ? { tags: ticketTagsFrom(input) } : {}),
       ...(input.links ? { links: input.links } : {}),
       relationships: input.relationships || [],
       revision: 1,
@@ -187,6 +199,14 @@ export class Folio {
       throw new ConflictError(`tickets/${id}/ticket.json`, `${id} is at revision ${ticket.revision}, not ${expectedRevision}; reload and retry`);
     const next = { ...ticket };
     const changes = {};
+    if ('tags' in patch) {
+      patch = { ...patch, tags: normalizeTags(patch.tags) };
+      if (!patch.tags.length) patch.tags = null;
+      if (next.labels !== undefined) {
+        changes.labels = { from: next.labels, to: null }; // tags replace the older labels field
+        delete next.labels;
+      }
+    }
     for (const [k, v] of Object.entries(patch)) {
       if (!EDITABLE.includes(k)) throw new ValidationError(`${k} cannot be changed this way`);
       if (JSON.stringify(ticket[k]) === JSON.stringify(v)) continue;
@@ -227,6 +247,32 @@ export class Folio {
     return this._commit(ticket, etag, { ...ticket, relationships: rels }, { type: 'relationship_removed', relationship: { type, target } }, via, actor);
   }
 
+  /** Add a link (to a file in this folio, or a URL) to a ticket's `links`, unless it is already there. */
+  async linkTicket(id, link, { actor = defaultActor, via = 'folio-lib' } = {}) {
+    if (!link || (typeof link.path !== 'string' && typeof link.url !== 'string')) throw new ValidationError('A link needs a path or a url');
+    const { ticket, etag } = await this.getTicket(id);
+    const links = ticket.links || [];
+    if (links.some((l) => (link.path && l.path === link.path) || (link.url && l.url === link.url))) return ticket;
+    return this._commit(ticket, etag, { ...ticket, links: [...links, link] }, { type: 'linked', link }, via, actor);
+  }
+
+  // ---- intake: putting dropped, uploaded or forwarded things in the right place ----
+
+  /**
+   * Add something to the folio and let the folio decide where it belongs (see intake.js):
+   * a repository URL is listed, an email is filed under sources/email, other links are saved,
+   * text becomes a note, files go to sources/uploads (or a ticket's attachments, or a folder).
+   * Returns an array of results, each with a one-line `summary`.
+   */
+  add(item, opts) {
+    return addItem(this, item, opts);
+  }
+
+  /** What add() would do with an item, without doing it. */
+  classify(item) {
+    return classify(item);
+  }
+
   async ticketEvents(id) {
     const files = (await this.fs.list(`tickets/${id}/events`)).filter((f) => f.endsWith('.json'));
     const out = [];
@@ -243,6 +289,7 @@ export class Folio {
     const g = buildGraph(tickets);
     return tickets.map((t) => ({
       ...t,
+      tags: ticketTags(t),
       readiness: readiness(t, g),
       children: g.children.get(t.id) || [],
       blocks: g.blocks.get(t.id) || [],
@@ -263,7 +310,8 @@ export class Folio {
     return {
       folio: manifest,
       tickets: { total: views.length, ...counts },
-      ready: views.filter((t) => t.readiness.ready).map((t) => ({ id: t.id, title: t.title, priority: t.priority })),
+      ready: views.filter((t) => t.readiness.ready).map((t) => ({ id: t.id, title: t.title, priority: t.priority, tags: t.tags })),
+      tags: [...new Set(views.flatMap((t) => t.tags))].sort((a, b) => a.localeCompare(b)),
       repositories: (manifest.repositories || []).map(describeRepository),
       connections: (manifest.connections || []).map((c) => ({ ...c, integration_state: 'reference_only' })),
     };
