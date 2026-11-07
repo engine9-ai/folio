@@ -1,6 +1,8 @@
 import { ConflictError, ValidationError } from './errors.js';
 import { normalizePath } from './fs.js';
-import { looksLikeEmail, parseEmailHeaders } from './email.js';
+import { emailAttachments, looksLikeEmail, parseEmail, parseEmailHeaders, rawHeaderBlock } from './email.js';
+import { dataFormat, keepInFolio, summarizeData } from './data.js';
+import { describeRemoved, prohibitedIn, scrubText } from './privacy.js';
 import { parseGithubUrl, repositoryKey } from './repositories.js';
 import { isTicketId } from './tickets.js';
 
@@ -21,7 +23,15 @@ import { isTicketId } from './tickets.js';
  *   email       .eml, .msg, raw MIME   -> sources/email/<date>-<subject>-<hash>.eml (spec 8.1)
  *   link        any other URL          -> sources/links/<date>-<site>-<hash>.json
  *   note        plain text             -> notes/<date>-<first-line>.md
+ *   data        a data file or log     -> summarised in sources/data/<date>-<name>-<hash>.json; the file
+ *                                         itself goes to the host's temporary storage (spec 8.4.1)
  *   file        anything else          -> sources/uploads/ (spec 8.4)
+ *
+ * Content policy (spec 3.7, GUIDE.md), applied here so every interface obeys it:
+ *   - card, bank account and Social Security numbers and credentials are removed from notes, comments and
+ *     text files; an email carrying them is stored as a text copy without them (the original is held);
+ *   - data files and logs are summarised with personal data masked, unless small and free of personal data;
+ *   - key and credential files (.env, .pem, id_rsa…) are refused; .git and node_modules folders are skipped.
  *
  * With a ticket (dropped on a ticket, or forwarded to a ticket's address): files go to
  * tickets/<id>/attachments/, emails stay in sources/email/, and the ticket gets a link to
@@ -30,7 +40,12 @@ import { isTicketId } from './tickets.js';
  * their own places, wherever they were dropped.
  */
 
-export const INTAKE_KINDS = ['repository', 'email', 'link', 'note', 'file'];
+export const INTAKE_KINDS = ['repository', 'email', 'link', 'note', 'data', 'file'];
+
+/** File names that are credentials by nature. They are refused, never stored. */
+const CREDENTIAL_FILE = /(^|\/)(\.env(\.(?!example$|sample$|template$)[^/]+)?|\.netrc|\.pgpass|\.npmrc|id_(rsa|dsa|ecdsa|ed25519)|[^/]+\.(pem|key|p12|pfx|jks|keystore|kdbx|ppk|asc|gpg|ovpn|mobileprovision))$/i;
+/** Folders that hold code or tooling, not evidence. Skipped inside a dropped folder. */
+const SKIPPED_DIR = /(^|\/)(\.git|node_modules|\.venv|venv|__pycache__|\.terraform|vendor\/bundle)\//;
 
 const enc = new TextEncoder();
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
@@ -158,6 +173,8 @@ export function classify(item = {}) {
   const name = item.name || '';
   const ext = extOf(name);
   const type = String(item.type || '').toLowerCase();
+  if (item.path && SKIPPED_DIR.test(String(item.path).replace(/\\/g, '/'))) return { kind: 'skipped', reason: 'code' };
+  if (CREDENTIAL_FILE.test(name)) return { kind: 'refused', reason: 'credential' };
   if (ext === 'eml' || type === 'message/rfc822') return { kind: 'email', format: 'eml' };
   if (ext === 'msg' || type === 'application/vnd.ms-outlook') return { kind: 'email', format: 'msg' };
   if (['webloc', 'url', 'desktop'].includes(ext)) {
@@ -165,6 +182,8 @@ export function classify(item = {}) {
     if (url) return viaUrl(url);
   }
   if ((!ext || ext === 'txt') && looksLikeEmail(peek(bytes))) return { kind: 'email', format: 'eml' };
+  const data = dataFormat({ name, type, bytes });
+  if (data) return { kind: 'data', format: data.format };
   return { kind: 'file' };
 }
 
@@ -223,6 +242,11 @@ export async function addItem(folio, item, { ticket, folder, actor = { type: 'un
   const fs = folio.fs;
   const day = (iso) => String(iso || folio.now()).slice(0, 10);
   const record = (extra) => writeIntakeRecord(folio, { actor, via, ...extra });
+  const itemLabel = item.path || item.name || 'item';
+
+  if (c.kind === 'skipped') return [{ kind: 'skipped', name: itemLabel, summary: `Skipped ${itemLabel}: code and tooling folders belong in a repository (list it in the folio instead)` }];
+  if (c.kind === 'refused')
+    return [{ kind: 'refused', name: itemLabel, summary: `Refused ${itemLabel}: folios must not hold keys or credentials. Record where it lives in your password manager instead.` }];
 
   if (c.kind === 'repository') {
     const listed = (await folio.repositories()).find((r) => repositoryKey(r) === repositoryKey(c.repository));
@@ -231,8 +255,15 @@ export async function addItem(folio, item, { ticket, folder, actor = { type: 'un
       const { ref, ...entry } = c.repository;
       await folio.addRepository(entry, { actor });
     }
-    if (ticket && c.url !== c.repository.url) await folio.linkTicket(ticket, { type: 'url', label: c.url, url: c.url }, { actor, via });
-    return [{ kind: 'repository', repository: label, url: c.url, duplicate: Boolean(listed), ...(ticket ? { ticket } : {}), summary: listed ? `${label} is already listed` : `Listed repository ${label}` }];
+    if (ticket && c.url !== c.repository.url) {
+      await folio.linkTicket(ticket, { type: 'url', label: c.url, url: c.url }, { actor, via });
+      return [{ kind: 'repository', repository: label, url: c.url, duplicate: Boolean(listed), ticket, summary: `${listed ? '' : `Listed repository ${label}; `}linked ${c.url} to ${ticket}` }];
+    }
+    // A release, pull request, issue, commit, branch or file: remembered on the repository's entry (spec 3.2.1).
+    const ref = c.repository.ref ? await folio.addRepositoryReference(c.repository, { ...c.repository.ref, url: c.url }, { actor }) : null;
+    const what = ref ? describeRef(ref) : null;
+    const said = listed ? (ref?.added ? `Recorded ${what} on ${label}` : ref ? `${what} is already recorded on ${label}` : `${label} is already listed`) : `Listed repository ${label}${ref ? ` with ${what}` : ''}`;
+    return [{ kind: 'repository', repository: label, url: c.url, duplicate: Boolean(listed) && !ref?.added, ...(ref ? { reference: ref.reference } : {}), summary: said }];
   }
 
   if (c.kind === 'link') {
@@ -260,39 +291,190 @@ export async function addItem(folio, item, { ticket, folder, actor = { type: 'un
     const bytes = toBytes(item.data ?? item.text);
     const headers = c.format === 'eml' ? parseEmailHeaders(peek(bytes, 65536)) || {} : {};
     const h = await shortHash(headers.message_id ? headers.message_id.trim() : bytes);
-    const existing = (await fs.list('sources/email')).find((p) => p.includes(`-${h}.`));
+    const existing = (await fs.list('sources/email')).find((p) => /^sources\/email\/[^/]+$/.test(p) && p.includes(`-${h}.`));
     let path = existing;
+    let privacy = null;
+    const extra = [];
     if (!existing) {
-      const name = `${day(headers.date)}-${slugify(headers.subject || (item.name || '').replace(/\.[^.]+$/, ''), 48) || 'email'}-${h}.${c.format}`;
-      path = `sources/email/${name}`;
-      await fs.write(path, bytes, { ifMatch: null, contentType: c.format === 'eml' ? 'message/rfc822' : 'application/vnd.ms-outlook' });
-      await record({ kind: 'email', path, original_name: item.name, email: headers, ...(ticket ? { ticket } : {}) });
+      const stem = `${day(headers.date)}-${slugify(headers.subject || (item.name || '').replace(/\.[^.]+$/, ''), 48) || 'email'}-${h}`;
+      path = `sources/email/${stem}.${c.format}`;
+      const raw = c.format === 'eml' ? peek(bytes, bytes.length) : null;
+      const plan = raw ? emailPrivacy(raw, headers) : null;
+      if (plan?.rewrite) {
+        // The original carries what a folio must not hold: keep a text copy here, hold the original.
+        const held = await holdBytes(folio, bytes, { name: `${stem}.eml`, type: 'message/rfc822', actor, via });
+        const placed = [];
+        for (const a of plan.attachments) {
+          if (a.data) {
+            const [r] = await addItem(folio, { name: a.name, type: a.type, data: a.bytes }, { ticket, actor, via: `${via}/email-attachment` });
+            placed.push({ name: a.name, path: r.path, summary: r.summary });
+            extra.push(r);
+          } else {
+            const scrubbed = scrubFile(a.name, a.bytes);
+            const p = await createUnique(fs, `sources/email/attachments/${stem}`, safeName(a.name), scrubbed.bytes, a.type || undefined);
+            placed.push({ name: a.name, path: p, ...(scrubbed.total ? { removed: scrubbed.removed } : {}) });
+          }
+        }
+        await fs.write(path, emailCopy(raw, plan, held, placed), { ifMatch: null, contentType: 'message/rfc822' });
+        privacy = { copy: true, removed: plan.removed, held: held || { where: 'not_kept' }, attachments: placed };
+      } else {
+        await fs.write(path, bytes, { ifMatch: null, contentType: c.format === 'eml' ? 'message/rfc822' : 'application/vnd.ms-outlook' });
+        if (!raw) privacy = { scanned: false, note: 'Outlook .msg files are not read, so not checked' };
+      }
+      await record({ kind: 'email', path, original_name: item.name, email: headers, ...(ticket ? { ticket } : {}), ...(privacy ? { privacy } : {}) });
     }
     if (ticket) await folio.linkTicket(ticket, { type: 'source', label: headers.subject ? `Email: ${headers.subject}` : 'Email', path }, { actor, via });
     const what = headers.subject ? `“${headers.subject}”` : 'the email';
-    return [{ kind: 'email', path, email: headers, duplicate: Boolean(existing), ...(ticket ? { ticket } : {}), summary: existing ? `${what} is already in this folio` : `Filed ${what} in sources/email` }];
+    let summary = existing ? `${what} is already in this folio` : `Filed ${what} in sources/email`;
+    if (privacy?.copy) {
+      const why = [describeRemoved(privacy.removed), privacy.attachments.some((a) => extra.some((r) => r.path === a.path && r.kind === 'data')) ? 'data attachments (summarised)' : ''].filter(Boolean).join(' and ');
+      summary += ` as a text copy without ${why}; ${heldPhrase(privacy.held, 'the original')}`;
+    }
+    return [{ kind: 'email', path, email: headers, duplicate: Boolean(existing), ...(ticket ? { ticket } : {}), ...(privacy?.copy ? { privacy } : {}), summary }, ...extra];
   }
 
   if (c.kind === 'note') {
-    const text = String(item.text ?? new TextDecoder().decode(toBytes(item.data)));
+    const raw = String(item.text ?? new TextDecoder().decode(toBytes(item.data)));
+    const { text, removed, total } = scrubText(raw);
+    const note = total ? ` (removed ${describeRemoved(removed)})` : '';
     if (ticket) {
       await folio.comment(ticket, text, { actor, via });
-      return [{ kind: 'note', ticket, summary: `Added a comment to ${ticket}` }];
+      return [{ kind: 'note', ticket, ...(total ? { removed } : {}), summary: `Added a comment to ${ticket}${note}` }];
     }
     const first = text.trim().split(/\r?\n/)[0];
     const path = await createUnique(fs, 'notes', `${day()}-${slugify(first, 40) || 'note'}.md`, text.endsWith('\n') ? text : text + '\n', 'text/markdown');
-    await record({ kind: 'note', path });
-    return [{ kind: 'note', path, summary: `Saved a note in ${path}` }];
+    await record({ kind: 'note', path, ...(total ? { privacy: { removed } } : {}) });
+    return [{ kind: 'note', path, ...(total ? { removed } : {}), summary: `Saved a note in ${path}${note}` }];
+  }
+
+  if (c.kind === 'data') {
+    const bytes = toBytes(item.data ?? item.text ?? '');
+    const name = safeName(item.name || 'data');
+    const summary = await summarizeData(bytes, { name, type: item.type, submitted_at: folio.now(), submitted_by: actor?.id, via });
+    if (!keepInFolio(summary)) {
+      const h8 = summary.sha256.slice(0, 8);
+      const existing = (await fs.list('sources/data')).find((p) => p.endsWith(`-${h8}.json`));
+      let path = existing;
+      if (!existing) {
+        summary.stored = (await holdBytes(folio, bytes, { name, type: item.type, sha256: summary.sha256, actor, via })) || {
+          where: 'not_kept',
+          note: 'This folio has no temporary storage, so only this summary was kept.',
+        };
+        path = `sources/data/${day()}-${slugify(name.replace(/\.[^.]+$/, ''), 40) || 'data'}-${h8}.json`;
+        await fs.write(path, json(summary), { ifMatch: null, contentType: 'application/json' });
+        await record({ kind: 'data', path, original_name: item.name, content_type: item.type || null, size: bytes.byteLength, sha256: summary.sha256, stored: summary.stored, ...(ticket ? { ticket } : {}) });
+      }
+      if (ticket) await folio.linkTicket(ticket, { type: 'source', label: `Data: ${name}`, path }, { actor, via });
+      const shown = existing ? JSON.parse((await fs.read(existing)).text) : summary;
+      return [{ kind: 'data', path, name, records: shown.records, pii: shown.pii.types, stored: shown.stored, duplicate: Boolean(existing), ...(ticket ? { ticket } : {}), summary: existing ? `${name} is already summarised in ${existing}` : dataSentence(summary) }];
+    }
+    // Small and free of personal data: an ordinary file, with the summary in its provenance.
+    return placeFile(folio, item, bytes, { ticket, folder, actor, via, record, data: { format: summary.format, records: summary.records, fields: summary.fields.length } });
   }
 
   // file
-  const bytes = toBytes(item.data ?? item.text ?? '');
+  return placeFile(folio, item, toBytes(item.data ?? item.text ?? ''), { ticket, folder, actor, via, record });
+}
+
+async function placeFile(folio, item, raw, { ticket, folder, actor, via, record, data }) {
   const dest = fileDestination({ ticket, folder });
   const name = safeName(item.name || 'untitled');
-  const path = await createUnique(fs, dest.dir + relativeDirs(item.path), name, bytes, item.type || undefined);
-  await record({ kind: 'file', path, original_name: item.name, content_type: item.type || null, size: bytes.byteLength, ...(dest.ticket ? { ticket: dest.ticket } : {}) });
+  const { bytes, removed, total } = scrubFile(name, raw);
+  const path = await createUnique(folio.fs, dest.dir + relativeDirs(item.path), name, bytes, item.type || undefined);
+  await record({ kind: 'file', path, original_name: item.name, content_type: item.type || null, size: bytes.byteLength, ...(dest.ticket ? { ticket: dest.ticket } : {}), ...(data ? { data } : {}), ...(total ? { privacy: { removed } } : {}) });
   if (dest.ticket) await folio.linkTicket(dest.ticket, { type: 'attachment', label: name, path }, { actor, via });
-  return [{ kind: 'file', path, ...(dest.ticket ? { ticket: dest.ticket } : {}), summary: `Added ${name} to ${path.slice(0, path.lastIndexOf('/'))}` }];
+  return [{ kind: 'file', path, ...(dest.ticket ? { ticket: dest.ticket } : {}), ...(total ? { removed } : {}), summary: `Added ${name} to ${path.slice(0, path.lastIndexOf('/'))}${total ? ` (removed ${describeRemoved(removed)})` : ''}` }];
+}
+
+// ---- content policy helpers ----
+
+const BINARY_EXT = /\.(png|jpe?g|gif|webp|heic|heif|tiff?|bmp|ico|pdf|zip|gz|tgz|bz2|xz|7z|rar|docx?|xlsx?|pptx?|odt|ods|odp|key|numbers|pages|mp[34]|mov|m4a|wav|avi|mkv|webm|woff2?|ttf|otf|eot|exe|dll|so|dylib|bin|wasm)$/i;
+
+/** A text file has prohibited content scrubbed (spec 3.7); binary files and images keep their bytes. */
+function scrubFile(name, bytes) {
+  if (BINARY_EXT.test(name) || bytes.byteLength > 10 * 1024 * 1024) return { bytes, removed: {}, total: 0 };
+  let text;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return { bytes, removed: {}, total: 0 };
+  }
+  if (text.slice(0, 8192).includes('\0')) return { bytes, removed: {}, total: 0 };
+  const r = scrubText(text);
+  return r.total ? { bytes: enc.encode(r.text), removed: r.removed, total: r.total } : { bytes, removed: {}, total: 0 };
+}
+
+/** Does an email need a text copy instead of its original? Prohibited content, or attachments that are data. */
+function emailPrivacy(raw, headers) {
+  const parsed = parseEmail(raw);
+  const body = parsed?.text || '';
+  const removed = prohibitedIn(`${headers.subject || ''}\n${body}`);
+  const attachments = emailAttachments(raw).map((a) => ({ ...a, data: Boolean(dataFormat(a)) }));
+  for (const a of attachments) {
+    if (a.data) continue;
+    const r = scrubFile(a.name, a.bytes);
+    for (const [k, v] of Object.entries(r.removed)) removed[k] = (removed[k] || 0) + v;
+  }
+  const rewrite = Object.keys(removed).length > 0 || attachments.some((a) => a.data);
+  return { rewrite, removed, body, attachments };
+}
+
+const DROPPED_HEADERS = /^(content-type|content-transfer-encoding|content-disposition|mime-version|content-id)\s*:/i;
+
+/** The folio's copy of an email: original headers, the readable text scrubbed, and where everything went. */
+function emailCopy(raw, plan, held, placed) {
+  const lines = rawHeaderBlock(raw).split(/\r?\n/);
+  const kept = [];
+  let dropping = false;
+  for (const line of lines) {
+    if (/^[ \t]/.test(line)) {
+      if (!dropping) kept.push(line);
+      continue;
+    }
+    dropping = DROPPED_HEADERS.test(line);
+    if (!dropping) kept.push(line);
+  }
+  const headerText = scrubText(kept.join('\r\n')).text;
+  const what = describeRemoved(plan.removed);
+  const footer = [
+    '',
+    '-- ',
+    `Folio kept this text copy instead of the original${what ? `, without ${what}` : ''}. ${heldPhrase(held, 'The original')}.`,
+    ...(placed.length ? ['Attachments:', ...placed.map((a) => `  ${a.name}: ${a.path}`)] : []),
+  ];
+  const body = `${scrubText(plan.body).text}\n${footer.join('\n')}\n`;
+  const marker = `X-Folio-Copy: text copy${what ? `; removed ${what}` : ''}${held?.expires_at ? `; original held until ${held.expires_at.slice(0, 10)}` : ''}`;
+  return `${headerText}\r\n${marker}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${body.replace(/\r?\n/g, '\r\n')}`;
+}
+
+/** Put bytes in the host's temporary storage. Returns { where: 'held', store, key, expires_at } or null. */
+async function holdBytes(folio, bytes, meta) {
+  if (!folio.hold || typeof folio.hold.put !== 'function') return null;
+  const sha256 = meta.sha256 || [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const r = await folio.hold.put(bytes, { name: meta.name, type: meta.type || null, sha256, actor: meta.actor, via: meta.via });
+  return r ? { where: 'held', ...r } : null;
+}
+
+function heldPhrase(stored, what) {
+  if (stored?.where === 'held') return `${what} is held in temporary storage${stored.expires_at ? ` until ${stored.expires_at.slice(0, 10)}` : ''}`;
+  return `${what} was not kept`;
+}
+
+function dataSentence(s) {
+  const size = s.records === null ? s.format.replace(/_/g, ' ') : `${s.records.toLocaleString('en-US')} ${s.logs ? 'lines' : 'records'}${s.fields.length ? `, ${s.fields.length} fields` : ''}`;
+  const pii = s.pii.found ? `; personal data (${s.pii.types.map((t) => t.toLowerCase().replace(/_/g, ' ')).join(', ')}) masked in the samples` : s.pii.unknown ? '; not read, so treated as personal data' : '';
+  return `Summarised ${s.name} (${size}${pii}); ${heldPhrase(s.stored, 'the file itself')}`;
+}
+
+function describeRef(r) {
+  const ref = r.reference;
+  if (ref.kind === 'release') return `release ${ref.tag}`;
+  if (ref.kind === 'pull') return `pull request #${ref.number}`;
+  if (ref.kind === 'issue') return `issue #${ref.number}`;
+  if (ref.kind === 'commit') return `commit ${String(ref.sha).slice(0, 7)}`;
+  if (ref.kind === 'branch') return `branch ${ref.name}`;
+  if (ref.kind === 'file') return `file ${ref.path}`;
+  return ref.kind;
 }
 
 /**

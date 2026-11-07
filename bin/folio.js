@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Folio } from '../src/folio.js';
-import { NodeFs } from '../src/node-fs.js';
+import { LocalHold, NodeFs } from '../src/node-fs.js';
 import { mkdir, readFile, readdir, stat } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 
@@ -12,7 +12,9 @@ const USAGE = `folio: work with folio folders
   folio ready <dir>
   folio add <dir> <file | folder | url | "text"> ... [--ticket TK-001] [--folder notes]
       files the item where it belongs: repo URL -> repositories, .eml -> sources/email,
-      other links -> sources/links, text -> notes, files -> sources/uploads (or the ticket)
+      other links -> sources/links, text -> notes, files -> sources/uploads (or the ticket),
+      data files and logs -> a summary in sources/data, the file itself held in ~/.folio/hold
+      (or FOLIO_HOLD_DIR, or --hold-dir) for 30 days. See GUIDE.md for what folios must not hold.
   folio ticket new <dir> --title "..." [--type bug] [--priority high] [--tags "a, b"] [--description "..."]
   folio ticket list <dir>
   folio ticket show <dir> <TK-001>
@@ -79,9 +81,16 @@ async function main() {
   if (cmd === 'add') {
     if (!args.length) throw new Error('usage: folio add <dir> <file | folder | url | "text"> ...');
     const opts = { actor, via, ...(flags.ticket ? { ticket: String(flags.ticket) } : {}), ...(flags.folder ? { folder: String(flags.folder) } : {}) };
+    const hold = new LocalHold({ dir: flags['hold-dir'] && String(flags['hold-dir']), folioId: (await folio.manifest()).manifest.id });
+    await hold.sweep();
+    folio.hold = hold;
     const items = [];
     const walk = async (abs, root) => {
       const st = await stat(abs);
+      if (st.isDirectory() && /^(\.git|node_modules|\.venv|venv|__pycache__)$/.test(basename(abs))) {
+        console.log(`${'skipped'.padEnd(10)} ${relative(root || '.', abs)}: code and tooling folders belong in a repository`);
+        return;
+      }
       if (st.isDirectory()) for (const e of await readdir(abs)) await walk(join(abs, e), root);
       else items.push({ name: basename(abs), path: root ? relative(root, abs) : undefined, data: new Uint8Array(await readFile(abs)) });
     };

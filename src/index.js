@@ -1,6 +1,8 @@
 export { Folio, normalizeTags, ticketTags } from './folio.js';
 export { INTAKE_KINDS, classify, repositoryFromUrl, safeName, slugify, urlsIn } from './intake.js';
-export { decodeEncodedWords, emailAddress, looksLikeEmail, parseEmail, parseEmailHeaders } from './email.js';
+export { decodeEncodedWords, emailAddress, emailAttachments, looksLikeEmail, parseEmail, parseEmailHeaders } from './email.js';
+export { KEEP_LIMITS, SUMMARY_KIND, dataFormat, keepInFolio, parseDelimited, summarizeData } from './data.js';
+export { CREDENTIAL_PATTERNS, PROHIBITED_TYPES, describeRemoved, findCredentials, prohibitedIn, scrubText } from './privacy.js';
 export { MemoryFs, normalizePath } from './fs.js';
 export { ConflictError, FolioError, NotFoundError, ValidationError } from './errors.js';
 export { FOLIO_STATUSES, FORMAT, FORMAT_REVISION, createManifest, newFolioId, validateManifest } from './manifest.js';

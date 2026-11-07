@@ -1,10 +1,11 @@
 import { ConflictError, NotFoundError, ValidationError } from './errors.js';
 import { createManifest, validateManifest } from './manifest.js';
-import { addRepositoryTo, describeRepository, removeRepositoryFrom } from './repositories.js';
+import { addRepositoryTo, describeRepository, removeRepositoryFrom, repositoryKey } from './repositories.js';
 import { buildGraph, isTicketId, RELATIONSHIP_TYPES, readiness, validateTicket, wouldCycle } from './tickets.js';
 import { validateFolio } from './validate.js';
 import { addItem, classify } from './intake.js';
 import { parseEmail } from './email.js';
+import { scrubText } from './privacy.js';
 
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
 const pad = (n) => String(n).padStart(6, '0');
@@ -26,10 +27,16 @@ const ticketTagsFrom = (input) => normalizeTags(input.tags ?? input.labels);
 export const ticketTags = (t) => normalizeTags(t?.tags ?? t?.labels);
 
 export class Folio {
-  /** @param fs a FolioFs (MemoryFs, NodeFs, or a hosted store) */
-  constructor(fs, { now = () => new Date().toISOString() } = {}) {
+  /**
+   * @param fs    a FolioFs (MemoryFs, NodeFs, or a hosted store)
+   * @param hold  optional temporary storage for originals a folio must not keep (data files, logs, emails
+   *              carrying card numbers): { put(bytes, { name, type, sha256, actor, via }) -> { store, key, expires_at } }.
+   *              Without it only the summary or the text copy is kept (spec 8.4.1).
+   */
+  constructor(fs, { now = () => new Date().toISOString(), hold = null } = {}) {
     this.fs = fs;
     this.now = now;
+    this.hold = hold;
   }
 
   /** Create a minimal folio: folio.json + README.md. Fails if one already exists here. */
@@ -84,6 +91,27 @@ export class Folio {
     return repositories.at(-1);
   }
 
+  /**
+   * Record a release, pull request, issue, commit, branch or file of a listed repository (spec 3.2.1), in its
+   * entry's `references`. Lists the repository first if needed. Returns { reference, added }.
+   */
+  async addRepositoryReference(repository, reference, { actor } = {}) {
+    if (!(await this.repositories()).some((r) => repositoryKey(r) === repositoryKey(repository))) {
+      const { ref, ...entry } = repository;
+      await this.addRepository(entry, { actor });
+    }
+    const { manifest, etag } = await this.manifest();
+    const list = manifest.repositories || [];
+    const i = list.findIndex((r) => repositoryKey(r) === repositoryKey(repository));
+    const refs = Array.isArray(list[i].references) ? list[i].references : [];
+    const found = refs.find((r) => r.url === reference.url);
+    if (found) return { reference: found, added: false };
+    const entry = { ...reference, added_at: this.now(), ...(actor?.id ? { added_by: actor.id } : {}) };
+    const repositories = list.map((r, j) => (j === i ? { ...r, references: [...refs, entry] } : r));
+    await this.updateManifest({ repositories }, { ifMatch: etag });
+    return { reference: entry, added: true };
+  }
+
   async removeRepository(input) {
     const { manifest, etag } = await this.manifest();
     const repositories = removeRepositoryFrom(manifest.repositories || [], input);
@@ -126,7 +154,7 @@ export class Folio {
   async createTicket(input, { actor = defaultActor, via = 'folio-lib' } = {}) {
     const now = this.now();
     const base = {
-      title: input.title,
+      title: input.title && scrubText(String(input.title)).text,
       type: input.type || 'request',
       status: input.status || 'open',
       priority: input.priority || 'normal',
@@ -160,7 +188,10 @@ export class Folio {
         throw e;
       }
       try {
-        if (input.description) await this.fs.write(`tickets/${id}/description.md`, input.description.endsWith('\n') ? input.description : input.description + '\n');
+        if (input.description) {
+          const description = scrubText(input.description).text; // spec 3.7: no card numbers or credentials
+          await this.fs.write(`tickets/${id}/description.md`, description.endsWith('\n') ? description : description + '\n');
+        }
         await this.fs.write(`tickets/${id}/ticket.json`, json(ticket), { ifMatch: null });
       } catch (e) {
         await this.fs.remove(`tickets/${id}/events/${pad(1)}.json`);
@@ -224,7 +255,7 @@ export class Folio {
     if (!text || !String(text).trim()) throw new ValidationError('A comment cannot be empty');
     const { ticket, etag } = await this.getTicket(id);
     if (expectedRevision !== undefined && expectedRevision !== ticket.revision) throw new ConflictError(`tickets/${id}/ticket.json`);
-    return this._commit(ticket, etag, ticket, { type: 'comment', comment: String(text) }, via, actor);
+    return this._commit(ticket, etag, ticket, { type: 'comment', comment: scrubText(String(text)).text }, via, actor);
   }
 
   async relate(id, type, target, { actor = defaultActor, via = 'folio-lib' } = {}) {

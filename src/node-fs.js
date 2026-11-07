@@ -99,3 +99,46 @@ export class NodeFs {
     await fsp.rm(this.abs(path), { force: true });
   }
 }
+
+/**
+ * Temporary storage on this computer for originals a folio must not keep (data files, logs, emails carrying
+ * card numbers): the CLI's counterpart of folio-server's R2 hold bucket. Files live outside the folio, in
+ * FOLIO_HOLD_DIR or ~/.folio/hold/<folio-id>/, and are removed by `sweep()` once older than `days`.
+ */
+export class LocalHold {
+  constructor({ dir, folioId = 'folio', days = 30, now = () => new Date() } = {}) {
+    const home = process.env.HOME || process.env.USERPROFILE || '.';
+    this.dir = resolve(dir || process.env.FOLIO_HOLD_DIR || join(home, '.folio', 'hold'), folioId.replace(/[^A-Za-z0-9_-]/g, '-'));
+    this.days = days;
+    this.now = now;
+  }
+
+  async put(bytes, { name = 'file', sha256 } = {}) {
+    const at = this.now();
+    const expires = new Date(at.getTime() + this.days * 86400000);
+    const key = `${at.toISOString().slice(0, 10)}/${(sha256 || etagOf(bytes)).slice(0, 16)}-${String(name).replace(/[^\w.-]+/g, '-').slice(0, 80)}`;
+    const full = join(this.dir, key);
+    await fsp.mkdir(dirname(full), { recursive: true });
+    await fsp.writeFile(full, bytes);
+    return { store: 'local', key, path: full, expires_at: expires.toISOString() };
+  }
+
+  /** Delete held files older than `days`. Returns the number removed. */
+  async sweep() {
+    let removed = 0;
+    const cutoff = this.now().getTime() - this.days * 86400000;
+    let days;
+    try {
+      days = await fsp.readdir(this.dir);
+    } catch {
+      return 0;
+    }
+    for (const day of days) {
+      const t = Date.parse(day);
+      if (!Number.isFinite(t) || t >= cutoff) continue;
+      await fsp.rm(join(this.dir, day), { recursive: true, force: true });
+      removed += 1;
+    }
+    return removed;
+  }
+}

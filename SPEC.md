@@ -3,6 +3,8 @@
 
 > **Status.** This is the working specification as finalised in the 2 November 2026 product conversation. It supersedes the earlier draft. It remains a living document: where a decision here conflicts with an earlier idea, this document wins. Scope for the first release is in [section 19](#19-version-1-scope-and-deferred-work).
 >
+> **Changes on 7 November 2026:** a content policy (3.7) with [GUIDE.md](GUIDE.md) as its user guide: no credentials, card, bank or Social Security numbers; client contacts are fine, other people's personal data is anonymised; code is referenced, not copied. Data files and logs are summarised, with personal data masked by `@engine9/pii-classifier`, and the originals held in temporary storage (8.4.1). Repository entries may record `references` to releases, pull requests, issues and commits (3.2.1).
+>
 > **Changes on 6 November 2026:** tickets carry **tags** (5.1; the older `labels` field still reads); adding anything to a folio goes through one routing rule owned by the library (8.6), used by drag and drop, uploads, the CLI and email forwarding; email forwarding to a folio's address is in version 1 (8.1); permissions live only in the hosting service (11.1).
 >
 > **Changes from the draft:** git repository listing is a core part of the folio model (3.2.1); Slack capture is out of version 1; the preview-isolation requirement is kept but its implementation is a tracked TODO; hosting is a single production environment at `folio.engine9.ai`.
@@ -127,6 +129,7 @@ folios/
 
     sources/
       email/
+      data/
       links/
       slack/
       github/
@@ -204,6 +207,7 @@ Each entry has:
 | `role` | no | `primary`, `secondary` or `reference` (read only, for context). |
 | `default_branch`, `branches` | no | Where to look. Informational. |
 | `notes`, `added_at`, `added_by` | no | Free text and provenance. |
+| `references` | no | Releases, pull requests, issues, commits, branches or files that matter to the work: `{ kind, url, tag \| number \| sha \| name \| path, added_at, added_by }`. Added when such a link is dropped on the folio. |
 
 Rules:
 
@@ -240,6 +244,18 @@ The folder can preserve **content**, but it cannot automatically carry a live id
 ### 3.6 Provenance and lasting knowledge
 
 If a decision depends on an email, that original email or a faithful retained copy should live in `sources/`. If a customer commented on a website preview, the response should reference the exact preview version shown. Summaries and annotations may make the material easier to navigate, but they cannot be the only surviving record of what was said or reviewed.
+
+### 3.7 Content policy
+
+What a folio holds is shared with everyone who can read it, copied when it is exported, and read by agents. So some things never belong in one. [GUIDE.md](GUIDE.md) explains this for the people and agents using folios; the library enforces it when items are added (8.6) and `validate` reports what got in another way.
+
+1. **No credentials.** Passwords, tokens, API keys, private keys and connection strings with passwords are never stored. A folio says where a credential lives (a password-manager vault and item), never what it is. Key and credential files are refused at intake; credentials in text are replaced with a pointer to the password manager. (This strengthens 3.4(6).)
+2. **No payment, bank or Social Security numbers.** Card numbers, bank account numbers (IBAN) and US Social Security numbers are replaced with a masked form wherever they are added: notes, comments, ticket titles and descriptions, text files. An email carrying one is kept as a text copy without it, and its original is held temporarily (8.4.1). Known test values are not personal data and are kept.
+3. **Client contacts are expected; everyone else is anonymised.** The account's own people (who send the emails, attend the meetings) are part of the record. Members, customers, donors and others the client serves are referred to by the client's identifiers. Sample rows and aggregates are fine; full result sets and exports are summarised (8.4.1).
+4. **Images are kept as they are.** A screenshot may show personal data; that is accepted.
+5. **Code is referenced, not copied.** Repositories are listed (3.2.1), with the releases, pull requests, issues and commits that matter. Samples, snippets in notes and comments, and deliverable artifacts are fine; codebases are not (`.git` and `node_modules` folders are skipped at intake, and `validate` warns about many source files outside `notes/`, `samples/` and `artifacts/`).
+
+Personal data is detected by [`@engine9/pii-classifier`](https://github.com/engine9-ai/pii-classifier), the same classifier for every interface. Detection is heuristic: it errs towards masking, and people remain responsible for what they write.
 
 ---
 
@@ -444,7 +460,7 @@ Sources provide the original context for work. The product should preserve origi
 
 > **In version 1:** an email reaches a folio in three ways, all filed by the same rule (8.6): **forwarding** it to the folio's intake address (`<folio-id>@<intake domain>`, or `<folio-id>+TK-001@…` to attach it to a ticket), **dragging** it from a desktop mail client (Apple Mail, Outlook, Thunderbird give the browser an `.eml` or `.msg` file), or adding an `.eml` file by hand. The hosting service accepts a forwarded email only from a sender who may write to that folio. Not yet: thread matching for replies, and splitting a forwarded wrapper from the original it carries.
 >
-> Each email is stored once, as received, at `sources/email/<date>-<subject>-<hash>.eml` (Outlook `.msg` files keep their own format). The date is the email's own `Date`, the hash comes from its `Message-ID` (or its bytes), so a second delivery of the same message is recognised and not stored again. The header summary (from, to, subject, date, message id) is read from the file whenever it is needed, and recorded with the intake provenance in `history/intake/`.
+> Each email is stored once, as received, at `sources/email/<date>-<subject>-<hash>.eml` (unless it carries content 3.7 forbids or data-file attachments: then the folio keeps a text copy with its original headers, its readable text scrubbed, an `X-Folio-Copy` header and a list of where each attachment went; data attachments are summarised as in 8.4.1, other attachments go to `sources/email/attachments/<email>/`, and the original is held temporarily) (Outlook `.msg` files keep their own format). The date is the email's own `Date`, the hash comes from its `Message-ID` (or its bytes), so a second delivery of the same message is recognised and not stored again. The header summary (from, to, subject, date, message id) is read from the file whenever it is needed, and recorded with the intake provenance in `history/intake/`.
 
 Each folio may receive relevant support emails through an assigned intake address, forwarding rule, or explicit import. Inbound email should be retained as an original message, with useful metadata such as sender, recipients, date, subject, message identifier, thread identity, and attachments.
 
@@ -470,6 +486,16 @@ Repository source code need not be copied into the folio. However, if a GitHub d
 
 People should be able to add documents, screenshots, meeting notes, exports, and customer-provided files. The product should distinguish original uploaded evidence from derived summaries or working copies, and retain enough metadata to explain when and how an item entered the folio.
 
+### 8.4.1 Data files and logs
+
+Exports, query results and logs usually hold other people's personal data and are far larger than anyone reads in a folio. Whatever brings one in (a drop, an upload, an email attachment, an agent), the library summarises it the same way:
+
+- **Recognised by** extension, type or content: CSV, TSV, JSON that is a list of records, JSON Lines, `.log` (and `.txt` files that are plainly logs); spreadsheets, Parquet, Avro, database files and dumps, and compressed exports are recognised but not read.
+- **The summary** is written to `sources/data/<date>-<name>-<hash>.json` (`"kind": "folio.data_summary"`): name, content type, size, SHA-256, submitted at, by and via, record or line count, and per field its inferred type, empty count and up to three example values; up to five sample rows; for logs the first and last timestamps, counts per level and redacted sample lines (first lines, first errors, last lines). Fields where `@engine9/pii-classifier` finds personal data are listed in `pii` and their examples masked; identifier fields are kept; free text is redacted span by span. Large files are counted over their bytes and sampled from the first megabyte, and the summary says so.
+- **The original** is handed to the host's temporary storage (`hold`): R2 on the hosted service, a local folder for the CLI. The summary's `stored` says where and until when (`expires_at`). Without temporary storage only the summary is kept, and `stored.where` is `not_kept`. Temporary storage is not part of the folio, and an exported folio does not carry it.
+- **Kept as an ordinary file** instead when it is at most 50 records and 64 KB and no personal data is found: a sample result belongs with the evidence. Its provenance record notes the format and counts.
+- The same bytes added again are recognised by their hash and not summarised twice. On a ticket, the summary is linked from it.
+
 ### 8.5 Source-linked reasoning
 
 A ticket, decision, status update, or feedback disposition may cite several sources. The UI should expose those citations with readable labels. Agents should be able to retrieve the underlying evidence to avoid repeating or amplifying an unsupported claim.
@@ -486,12 +512,16 @@ Whatever adds something to a folio (a drag and drop in the browser, an upload, a
 | Email | `.eml` / `message/rfc822`, Outlook `.msg`, or text that starts with an email header block | `sources/email/` (8.1) |
 | Other link | Any other URL (also `.webloc` and `.url` shortcut files) | `sources/links/<date>-<site>-<hash>.json`, holding the URL and who added it |
 | Text | Dropped or pasted text that is not a URL | `notes/<date>-<first line>.md` |
-| File | Anything else | `sources/uploads/` (8.4), keeping a dropped folder's structure; a name already in use gets a number ("report 2.pdf") |
+| Data file or log | CSV, TSV, JSON records, JSON Lines, logs, spreadsheets, dumps (8.4.1) | A summary in `sources/data/`, the original in temporary storage; small files with no personal data are filed as ordinary files |
+| Refused | Key and credential files (`.env`, `.pem`, `id_rsa`, `.kdbx`, …) | Not stored (3.7) |
+| File | Anything else | `sources/uploads/` (8.4), keeping a dropped folder's structure; a name already in use gets a number ("report 2.pdf"). Text files have prohibited content (3.7) removed; images and other binary files keep their bytes |
 
 Where it was dropped refines this:
 
 - **On a ticket:** files go to `tickets/<id>/attachments/`; emails still go to `sources/email/`; the ticket gets a link to each (`links`, with a `linked` event in its history). A link is recorded on the ticket instead of `sources/links/`. Text becomes a comment.
 - **On a folder:** files go into that folder (a folder inside a ticket means that ticket's attachments). Emails, repositories and links still go to their own places.
+
+Inside a dropped folder, `.git`, `node_modules` and similar tooling folders are skipped. Text added as a note or comment, and ticket titles and descriptions, have prohibited content (3.7) removed. A link to a release, pull request, issue, commit, branch or file of a repository is recorded in that repository's `references` (3.2.1), or on the ticket it was dropped on.
 
 Every stored item except a repository listing (which records `added_by` and `added_at` itself) gets a small provenance record in `history/intake/`: when, by whom, through which interface, its original name and type.
 
@@ -788,3 +818,5 @@ A successful folio stands on its own. The hosted application provides a pleasant
 | Static website previews (7.3) | Blocked on a TODO | A separate registrable preview domain (see 7.4). |
 | Feedback forms, artifacts and decisions in the browser UI | After v1 core | The formats are specified and have examples; the interface follows. |
 | Publishing `@engine9/folio` to npm | After testing | Until then, depend on the GitHub repository. |
+| Reading spreadsheets, Parquet and compressed exports (8.4.1) | Held and summarised by name only | A parser that runs in Workers within memory limits. |
+| Text copies of `.msg` emails (3.7) | `.msg` files are stored unread | An Outlook message parser. |

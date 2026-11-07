@@ -204,3 +204,52 @@ export function parseEmail(text) {
   const out = (r.plain ?? r.html ?? '').replace(/\r\n/g, '\n').trim();
   return { headers, text: out };
 }
+
+function transferBytes(body, encoding) {
+  const enc = String(encoding || '').toLowerCase();
+  if (enc === 'base64') {
+    try {
+      const bin = atob(body.replace(/[^A-Za-z0-9+/=]/g, ''));
+      return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    } catch {
+      /* fall through: keep the text */
+    }
+  }
+  if (enc === 'quoted-printable') return new TextEncoder().encode(decodeTransfer(body, enc, 'utf-8'));
+  return new TextEncoder().encode(body);
+}
+
+/**
+ * The attachments of an email: [{ name, type, bytes }]. A part is an attachment when it says so
+ * (Content-Disposition: attachment) or carries a file name. Inline text and HTML bodies are not.
+ */
+export function emailAttachments(text) {
+  const out = [];
+  const walk = (head, body, depth) => {
+    const h = partHeaders(head);
+    const type = String(h['content-type'] || 'text/plain').toLowerCase();
+    if (type.startsWith('multipart/') && depth < 8) {
+      const boundary = param(h['content-type'], 'boundary');
+      if (!boundary) return;
+      const parts = body.split(new RegExp(`\\r?\\n?--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:--)?[ \\t]*\\r?\\n?`));
+      for (const p of parts.slice(1)) {
+        if (!p.trim()) continue;
+        const [ph, pb] = splitMessage(p);
+        walk(ph, pb, depth + 1);
+      }
+      return;
+    }
+    const name = decodeEncodedWords(param(h['content-disposition'], 'filename') || param(h['content-type'], 'name'));
+    const attached = /attachment/i.test(h['content-disposition'] || '') || Boolean(name);
+    if (!attached || depth === 0) return;
+    out.push({ name: name || 'attachment', type: type.split(';')[0].trim(), bytes: transferBytes(body, h['content-transfer-encoding']) });
+  };
+  const [head, body] = splitMessage(String(text || ''));
+  walk(head, body, 0);
+  return out;
+}
+
+/** The raw header block of a message, unchanged (folded lines kept), without the blank line after it. */
+export function rawHeaderBlock(text) {
+  return splitMessage(String(text || ''))[0];
+}
