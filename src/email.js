@@ -96,3 +96,111 @@ export function parseEmailHeaders(text) {
   for (const k of Object.keys(out)) if (out[k] === null) delete out[k];
   return out;
 }
+
+// ---- body text, for reading and summarising (the stored bytes are never changed) ----
+
+function splitMessage(text) {
+  const m = /\r?\n\r?\n/.exec(text);
+  return m ? [text.slice(0, m.index), text.slice(m.index + m[0].length)] : [text, ''];
+}
+
+function partHeaders(head) {
+  const out = {};
+  let last = null;
+  for (const line of head.split(/\r?\n/)) {
+    if (/^[ \t]/.test(line) && last) out[last] += ' ' + line.trim();
+    else {
+      const i = line.indexOf(':');
+      if (i > 0) {
+        last = line.slice(0, i).trim().toLowerCase();
+        out[last] = line.slice(i + 1).trim();
+      }
+    }
+  }
+  return out;
+}
+
+const param = (value, name) => {
+  const m = new RegExp(`${name}\\s*=\\s*(?:"([^"]*)"|([^;\\s]+))`, 'i').exec(value || '');
+  return m ? m[1] ?? m[2] : null;
+};
+
+function decodeTransfer(body, encoding, charset) {
+  const enc = String(encoding || '').toLowerCase();
+  if (enc === 'base64') {
+    try {
+      const bin = atob(body.replace(/[^A-Za-z0-9+/=]/g, ''));
+      return decodeBytes(Uint8Array.from(bin, (c) => c.charCodeAt(0)), charset);
+    } catch {
+      return body;
+    }
+  }
+  if (enc === 'quoted-printable') {
+    const s = body.replace(/=\r?\n/g, '');
+    const bytes = [];
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '=' && /^[0-9A-Fa-f]{2}$/.test(s.slice(i + 1, i + 3))) {
+        bytes.push(parseInt(s.slice(i + 1, i + 3), 16));
+        i += 2;
+      } else {
+        const code = s.charCodeAt(i);
+        if (code < 128) bytes.push(code);
+        else bytes.push(...new TextEncoder().encode(s[i]));
+      }
+    }
+    return decodeBytes(new Uint8Array(bytes), charset);
+  }
+  return body;
+}
+
+const stripHtml = (html) =>
+  html
+    .replace(/<(script|style)[^]*?<\/\1>/gi, '')
+    .replace(/<br\s*\/?>|<\/p>|<\/div>|<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n');
+
+/** The readable text of one MIME entity: text/plain preferred, else text/html stripped; parts recurse. */
+function entityText(head, body, depth = 0) {
+  const h = partHeaders(head);
+  const type = String(h['content-type'] || 'text/plain').toLowerCase();
+  if (type.startsWith('multipart/') && depth < 8) {
+    const boundary = param(h['content-type'], 'boundary');
+    if (!boundary) return { plain: body, html: null };
+    const parts = body.split(new RegExp(`\\r?\\n?--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:--)?[ \\t]*\\r?\\n?`));
+    let plain = null;
+    let html = null;
+    for (const p of parts.slice(1)) {
+      if (!p.trim()) continue;
+      const [ph, pb] = splitMessage(p);
+      const r = entityText(ph, pb, depth + 1);
+      if (r.plain && plain === null) plain = r.plain;
+      if (r.html && html === null) html = r.html;
+    }
+    return { plain, html };
+  }
+  if (/attachment/i.test(h['content-disposition'] || '')) return { plain: null, html: null };
+  const decoded = decodeTransfer(body, h['content-transfer-encoding'], param(h['content-type'], 'charset'));
+  if (type.startsWith('text/html')) return { plain: null, html: stripHtml(decoded) };
+  if (type.startsWith('text/')) return { plain: decoded, html: null };
+  return { plain: null, html: null };
+}
+
+/**
+ * Headers (as parseEmailHeaders) plus the readable body text of an email. Handles plain, quoted-printable,
+ * base64 and multipart messages; HTML-only messages are reduced to text. Returns null if the text is not an email.
+ */
+export function parseEmail(text) {
+  const headers = parseEmailHeaders(text);
+  if (!headers) return null;
+  const [head, body] = splitMessage(String(text));
+  const r = entityText(head, body);
+  const out = (r.plain ?? r.html ?? '').replace(/\r\n/g, '\n').trim();
+  return { headers, text: out };
+}

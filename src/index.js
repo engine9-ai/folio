@@ -1,6 +1,6 @@
 export { Folio, normalizeTags, ticketTags } from './folio.js';
 export { INTAKE_KINDS, classify, repositoryFromUrl, safeName, slugify, urlsIn } from './intake.js';
-export { decodeEncodedWords, emailAddress, looksLikeEmail, parseEmailHeaders } from './email.js';
+export { decodeEncodedWords, emailAddress, looksLikeEmail, parseEmail, parseEmailHeaders } from './email.js';
 export { MemoryFs, normalizePath } from './fs.js';
 export { ConflictError, FolioError, NotFoundError, ValidationError } from './errors.js';
 export { FOLIO_STATUSES, FORMAT, FORMAT_REVISION, createManifest, newFolioId, validateManifest } from './manifest.js';

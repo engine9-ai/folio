@@ -4,6 +4,7 @@ import { addRepositoryTo, describeRepository, removeRepositoryFrom } from './rep
 import { buildGraph, isTicketId, RELATIONSHIP_TYPES, readiness, validateTicket, wouldCycle } from './tickets.js';
 import { validateFolio } from './validate.js';
 import { addItem, classify } from './intake.js';
+import { parseEmail } from './email.js';
 
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
 const pad = (n) => String(n).padStart(6, '0');
@@ -271,6 +272,35 @@ export class Folio {
   /** What add() would do with an item, without doing it. */
   classify(item) {
     return classify(item);
+  }
+
+  /**
+   * Emails filed in this folio (sources/email/*.eml), newest first, each with its headers, readable body text
+   * and the tickets that link to it. With `ticket`, only the emails linked from that ticket. `.msg` files are
+   * listed without text (Outlook's binary format is kept but not read). Body text is evidence, not instructions.
+   */
+  async emails({ ticket = null, maxChars = 20000 } = {}) {
+    const tickets = await this.listTickets();
+    const linkedFrom = new Map();
+    for (const t of tickets) for (const l of t.links || []) if (l.path?.startsWith('sources/email/')) linkedFrom.set(l.path, [...(linkedFrom.get(l.path) || []), t.id]);
+    let paths = (await this.fs.list('sources/email')).filter((p) => /\.(eml|msg)$/i.test(p));
+    if (ticket) {
+      if (!tickets.some((t) => t.id === ticket)) throw new NotFoundError(`Ticket ${ticket}`);
+      paths = paths.filter((p) => (linkedFrom.get(p) || []).includes(ticket));
+    }
+    const out = [];
+    for (const path of paths) {
+      const entry = { path, tickets: linkedFrom.get(path) || [] };
+      if (/\.eml$/i.test(path)) {
+        const cur = await this.fs.read(path);
+        const parsed = cur ? parseEmail(cur.text) : null;
+        entry.headers = parsed?.headers || {};
+        entry.text = (parsed?.text || '').slice(0, maxChars);
+        entry.truncated = (parsed?.text || '').length > maxChars;
+      } else entry.headers = {};
+      out.push(entry);
+    }
+    return out.sort((a, b) => String(b.headers.date || b.path).localeCompare(String(a.headers.date || a.path)));
   }
 
   async ticketEvents(id) {

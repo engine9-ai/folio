@@ -36,6 +36,7 @@ const { ok, problems } = await folio.validate();
 await folio.add({ url: 'https://github.com/engine9-ai/folio' }, { actor });             // listed in folio.json
 await folio.add({ name: 'report.eml', data: emlBytes }, { actor });                      // sources/email/
 await folio.add({ name: 'screenshot.png', data: pngBytes }, { actor, ticket: 'TK-002' }); // ticket attachment, linked
+await folio.emails({ ticket: 'TK-002' }); // filed emails linked from TK-002: headers, readable body text, linking tickets
 ```
 
 Behaviours worth knowing:
@@ -44,6 +45,7 @@ Behaviours worth knowing:
 - **Inverse relationships are computed**, never stored, so they cannot drift from the files.
 - **Repository listing is by reference.** Entries in `folio.json` work with no integration; every entry reads as `reference_only` in this library.
 - **Unknown fields are preserved** when tickets and manifests are edited.
+- **Reading email.** `parseEmail(text)` returns headers plus readable body text (plain, quoted-printable, base64, multipart; HTML reduced to text). `folio.emails({ ticket })` lists a folio's filed emails with that text and the tickets that link to each, so hosts can show or summarise them. Stored bytes are never changed.
 - **Intake routing lives here.** `folio.add(item, { ticket, folder })` recognises repositories, emails, links, text and files and puts each in the right place, with provenance under `history/intake/`. Hosts (the browser, email forwarding, MCP, the CLI) only hand items over.
 - **Binary files.** `write(path, data)` takes a string or a `Uint8Array`; stores may add `readBytes(path)`. Ticket and manifest files stay JSON text.
 - **Tickets carry tags** (`tags` in `ticket.json`); the older `labels` field still reads.
