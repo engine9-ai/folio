@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-02T20:00:00.000Z",
+  "kind": "comment",
+  "author": {
+    "type": "user",
+    "id": "robin@example.com",
+    "name": "Robin (engineer)"
+  },
+  "via": "example",
+  "text": "Reproduced. A recent change used a regex lookbehind, which older Safari rejects.",
+  "ticket": "TK-001"
+}

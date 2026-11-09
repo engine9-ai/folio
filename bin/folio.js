@@ -11,14 +11,17 @@ const USAGE = `folio: work with folio folders
   folio overview <dir>
   folio ready <dir>
   folio add <dir> <file | folder | url | "text"> ... [--ticket TK-001] [--folder notes] [--as markdown|html|text|json|import|file]
-      files the item where it belongs: repo URL -> repositories, .eml -> sources/email,
-      other links -> sources/links, text -> notes, files -> sources/uploads (or the ticket),
+      files the item where it belongs: repo URL -> repositories, .eml -> comms,
+      other links -> sources/links, text -> notes, files -> attachments (or the ticket),
       data files and logs -> a summary in sources/data, the file itself held in ~/.folio/hold
       (or FOLIO_HOLD_DIR, or --hold-dir) for 30 days. See GUIDE.md for what folios must not hold.
       Text is saved as .md, .html or .txt by what it looks like; --as picks the type instead.
       An Asana or Trello JSON export (or { "tickets": [...] }) becomes tickets.
   folio import <dir> <export.json> [--format asana|trello|folio-tickets] [--dry-run]
   folio retype <dir> <path> <markdown|html|text>     change a note's file type
+  folio comment <dir> "text" [--ticket TK-001] [--kind comment|update|agent]
+  folio comms <dir> [--ticket TK-001]                  the conversation in time order
+  folio upgrade <dir>                                  move an older folio into the comms/ + attachments/ layout
   folio ticket new <dir> --title "..." [--type bug] [--priority high] [--tags "a, b"] [--description "..."]
   folio ticket list <dir>
   folio ticket show <dir> <TK-001>
@@ -117,6 +120,13 @@ async function main() {
     if (!args[1]) throw new Error('usage: folio retype <dir> <path> <markdown|html|text>');
     return out((await folio.setTextFormat(args[0], args[1], { actor, via })).summary);
   }
+
+  if (cmd === 'comment') return out((await folio.comment(flags.ticket ? String(flags.ticket) : null, args.join(' '), { actor, via, kind: flags.kind ? String(flags.kind) : 'comment' })).path);
+  if (cmd === 'comms') {
+    for (const m of await folio.comms({ ticket: flags.ticket ? String(flags.ticket) : null })) console.log(`${String(m.at).slice(0, 16)}  ${m.kind.padEnd(7)} ${m.ticket ? `[${m.ticket}] ` : ''}${m.subject ? `${m.subject}: ` : ''}${m.text.split('\n')[0].slice(0, 100)}`);
+    return;
+  }
+  if (cmd === 'upgrade') return out((await folio.upgradeLayout({ actor, via })).summary);
 
   if (cmd === 'repo') {
     const [sub, ...a] = args;

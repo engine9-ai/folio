@@ -38,9 +38,12 @@ const { ok, problems } = await folio.validate();
 
 // Add anything; the folio decides where it goes (SPEC 8.6).
 await folio.add({ url: 'https://github.com/engine9-ai/folio' }, { actor });             // listed in folio.json
-await folio.add({ name: 'report.eml', data: emlBytes }, { actor });                      // sources/email/
+await folio.add({ name: 'report.eml', data: emlBytes }, { actor });                      // comms/ (with comments, updates and agents' reports)
 await folio.add({ name: 'screenshot.png', data: pngBytes }, { actor, ticket: 'TK-002' }); // ticket attachment, linked
 await folio.add({ name: 'donors.csv', data: csvBytes }, { actor });                       // summary in sources/data/, original to `hold`
+await folio.comment('TK-002', 'Reproduced on iOS', { actor });                     // comms/…comment.json
+await folio.post('update', 'On track for Friday', { actor });                       // comms/…update.json
+await folio.comms({ ticket: 'TK-002' });  // the conversation in time order: messages, emails
 await folio.emails({ ticket: 'TK-002' }); // filed emails linked from TK-002: headers, readable body text, linking tickets
 
 // Pasted text: Markdown, HTML or plain text by detection; `as` overrides; the type can be changed after.

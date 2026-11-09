@@ -38,7 +38,7 @@ async function fresh(name) {
     now,
   });
   await folio.addRepository({ repository: 'example/campaign-site', purpose: 'Donation page and form handler', role: 'primary' }, { actor: sam });
-  await fs.write('sources/email/2026-11-02-forwarded-report.eml', [
+  await fs.write('comms/2026-11-02-forwarded-report.eml', [
     'From: pat@customer.example',
     'To: support@agency.example',
     'Subject: Donate button broken!',
@@ -53,7 +53,7 @@ async function fresh(name) {
     type: 'bug',
     priority: 'urgent',
     outcome: 'Donations complete on Safari, confirmed by the customer.',
-    links: [{ type: 'source', label: "Customer's original email", path: 'sources/email/2026-11-02-forwarded-report.eml' }],
+    links: [{ type: 'source', label: "Customer's original email", path: 'comms/2026-11-02-forwarded-report.eml' }],
     description: 'Reported by Pat at the customer. Started this morning, Safari only.\n',
   }, { actor: sam, via: 'example' });
   await folio.updateTicket(t.id, { status: 'in_progress', owner: 'robin@example.com' }, { actor: robin, via: 'example' });
@@ -103,12 +103,12 @@ async function fresh(name) {
   await folio.relate(launch.id, 'blocked_by', content.id, { actor: sam, via: 'example' });
 
   // Decision with rationale and evidence
-  await fs.write('sources/email/2026-09-10-customer-brand-guidance.eml', 'From: pat@customer.example\r\nSubject: Brand colours\r\nMessage-ID: <brand-1@customer.example>\r\n\r\nPlease keep our teal. The orange in the old portal is being retired.\r\n');
+  await fs.write('comms/2026-09-10-customer-brand-guidance.eml', 'From: pat@customer.example\r\nSubject: Brand colours\r\nMessage-ID: <brand-1@customer.example>\r\n\r\nPlease keep our teal. The orange in the old portal is being retired.\r\n');
   await fs.write('decisions/DEC-001.json', j({
     id: 'DEC-001', title: 'Keep the existing teal as the primary colour', date: '2026-09-11',
     decided_by: 'Pat (customer) with Sam (account manager)', status: 'accepted',
     related_tickets: [design.id],
-    sources: [{ label: "Customer's brand guidance", path: 'sources/email/2026-09-10-customer-brand-guidance.eml' }],
+    sources: [{ label: "Customer's brand guidance", path: 'comms/2026-09-10-customer-brand-guidance.eml' }],
   }));
   await fs.write('decisions/DEC-001.md', '# Keep the existing teal\n\n**Choice.** Teal stays the primary colour.\n\n**Why.** The customer is retiring the orange; teal already passes contrast checks.\n\n**Alternatives.** A new palette (rejected: extra review cost).\n');
 

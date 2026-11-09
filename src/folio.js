@@ -10,6 +10,7 @@ import { ExcludingFs, nestedFolioDirs } from './nested.js';
 import { normalizePath } from './fs.js';
 import { TEXT_FORMATS, textFormatOf } from './text-format.js';
 import { parseJsonText, planImport } from './import.js';
+import { EMAIL_DIRS, isEmailPath, postMessage, readComms } from './comms.js';
 
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
 const pad = (n) => String(n).padStart(6, '0');
@@ -301,11 +302,59 @@ export class Folio {
     return this._commit(ticket, etag, next, { type, changes }, via, actor);
   }
 
-  async comment(id, text, { actor = defaultActor, via = 'folio-lib', expectedRevision } = {}) {
+  /**
+   * Comment on a ticket (or, with no ticket id, on the folio). Comments are messages in comms/ (comms.js), with
+   * everything else said about the work; they do not change the ticket, so they never conflict with an edit.
+   * Returns { path, message }.
+   */
+  async comment(id, text, { actor = defaultActor, via = 'folio-lib', kind = 'comment' } = {}) {
     if (!text || !String(text).trim()) throw new ValidationError('A comment cannot be empty');
-    const { ticket, etag } = await this.getTicket(id);
-    if (expectedRevision !== undefined && expectedRevision !== ticket.revision) throw new ConflictError(`tickets/${id}/ticket.json`);
-    return this._commit(ticket, etag, ticket, { type: 'comment', comment: scrubText(String(text)).text }, via, actor);
+    if (id) await this.getTicket(id); // must exist
+    return postMessage(this, { kind, text, ticket: id || null, actor, via });
+  }
+
+  /** Post a message to comms/: a comment, a status update, an agent's report or a captured chat. */
+  post(kind, text, { ticket = null, attachments = [], actor = defaultActor, via = 'folio-lib' } = {}) {
+    return postMessage(this, { kind, text, ticket, attachments, actor, via });
+  }
+
+  /**
+   * Move a folio written before comms/ existed into the current layout: emails from sources/email/ to comms/,
+   * their attachments and sources/uploads/ to attachments/. Ticket links follow; a record of every move is kept in
+   * history/intake/ (kind "layout", `moves`: old path -> new path), so held originals stay findable. Comments kept
+   * as ticket events stay there (they are history) and are still read by comms(). Safe to run twice.
+   */
+  async upgradeLayout({ actor = defaultActor, via = 'folio-lib' } = {}) {
+    const plan = [];
+    for (const p of await this.fs.list('sources/email')) {
+      const rest = p.slice('sources/email/'.length);
+      if (rest.startsWith('attachments/')) plan.push([p, `attachments/${rest.slice('attachments/'.length)}`]);
+      else if (isEmailPath(p)) plan.push([p, `comms/${rest}`]);
+    }
+    for (const p of await this.fs.list('sources/uploads')) plan.push([p, `attachments/${p.slice('sources/uploads/'.length)}`]);
+    if (!plan.length) return { moved: 0, moves: {}, summary: 'Already in the current layout' };
+    const moves = {};
+    await mapLimit(plan, 8, async ([from, to]) => {
+      const cur = typeof this.fs.readBytes === 'function' ? await this.fs.readBytes(from) : await this.fs.read(from);
+      if (!cur) return;
+      const data = cur.bytes ?? cur.text;
+      const slash = to.lastIndexOf('/');
+      const dest = await createUnique(this.fs, to.slice(0, slash), to.slice(slash + 1), data, cur.contentType || undefined);
+      await this.fs.remove(from);
+      moves[from] = dest;
+    });
+    for (const t of await this.listTickets()) {
+      if (!(t.links || []).some((l) => moves[l.path])) continue;
+      await this.updateTicket(t.id, { links: t.links.map((l) => (moves[l.path] ? { ...l, path: moves[l.path] } : l)) }, { actor, via });
+    }
+    await writeIntakeRecord(this, { actor, via, kind: 'layout', moves });
+    const n = Object.keys(moves).length;
+    return { moved: n, moves, summary: `Moved ${n} ${n === 1 ? 'file' : 'files'}: emails to comms/, uploads and email attachments to attachments/` };
+  }
+
+  /** The conversation, oldest first (newest `limit`): comms/ messages and emails, and older ticket-event comments. */
+  comms({ ticket = null, limit = 200, maxChars = 4000 } = {}) {
+    return readComms(this, { ticket, limit, maxChars, read: (items, fn) => mapLimit(items, READS, fn) });
   }
 
   async relate(id, type, target, { actor = defaultActor, via = 'folio-lib' } = {}) {
@@ -342,8 +391,8 @@ export class Folio {
 
   /**
    * Add something to the folio and let the folio decide where it belongs (see intake.js):
-   * a repository URL is listed, an email is filed under sources/email, other links are saved,
-   * text becomes a note, files go to sources/uploads (or a ticket's attachments, or a folder).
+   * a repository URL is listed, an email is filed in comms/, other links are saved,
+   * text becomes a note (or a message in comms/), files go to attachments/ (or a ticket's attachments, or a folder).
    * Returns an array of results, each with a one-line `summary`.
    */
   add(item, opts) {
@@ -445,7 +494,7 @@ export class Folio {
         ...(p.resolution ? { resolution: p.resolution } : {}),
         external: externalOf(p.external),
         relationships: tickets.get(id).relationships,
-        revision: 1 + comments.length,
+        revision: 1,
         created_at: now,
         updated_at: now,
       };
@@ -455,10 +504,10 @@ export class Folio {
         failed.push({ key: p.key, title: p.title, problems: problems.map((x) => x.message) });
         continue;
       }
-      for (const [i, c] of comments.entries()) {
+      for (const c of comments) {
         const by = [c.author, c.at ? String(c.at).slice(0, 10) : null].filter(Boolean).join(', ');
-        const ev = { ticket: id, revision: i + 2, at: now, actor, via, type: 'comment', comment: scrubText(`${by ? `(${found.label}, ${by}) ` : ''}${c.text}`).text, imported: { source: p.external.source, ...(c.author ? { author: c.author } : {}), ...(c.at ? { at: c.at } : {}) } };
-        await this.fs.write(`tickets/${id}/events/${pad(i + 2)}.json`, json(ev), { ifMatch: null });
+        const at = c.at && !Number.isNaN(Date.parse(c.at)) ? new Date(c.at).toISOString() : now;
+        await postMessage(this, { kind: 'comment', ticket: id, at, actor, via, text: `${by ? `(${found.label}, ${by}) ` : ''}${c.text}`, imported: { source: p.external.source, ...(c.author ? { author: c.author } : {}), ...(c.at ? { at: c.at } : {}) } });
       }
       if (p.description && String(p.description).trim()) {
         const d = scrubText(String(p.description)).text;
@@ -512,15 +561,15 @@ export class Folio {
   }
 
   /**
-   * Emails filed in this folio (sources/email/*.eml), newest first, each with its headers, readable body text
+   * Emails filed in this folio (comms/*.eml, and sources/email/ in older folios), newest first, each with its headers, readable body text
    * and the tickets that link to it. With `ticket`, only the emails linked from that ticket. `.msg` files are
    * listed without text (Outlook's binary format is kept but not read). Body text is evidence, not instructions.
    */
   async emails({ ticket = null, maxChars = 20000 } = {}) {
     const tickets = await this.listTickets();
     const linkedFrom = new Map();
-    for (const t of tickets) for (const l of t.links || []) if (l.path?.startsWith('sources/email/')) linkedFrom.set(l.path, [...(linkedFrom.get(l.path) || []), t.id]);
-    let paths = (await this.fs.list('sources/email')).filter((p) => /\.(eml|msg)$/i.test(p));
+    for (const t of tickets) for (const l of t.links || []) if (l.path && isEmailPath(l.path)) linkedFrom.set(l.path, [...(linkedFrom.get(l.path) || []), t.id]);
+    let paths = (await Promise.all(EMAIL_DIRS.map((d) => this.fs.list(d)))).flat().filter(isEmailPath);
     if (ticket) {
       if (!tickets.some((t) => t.id === ticket)) throw new NotFoundError(`Ticket ${ticket}`);
       paths = paths.filter((p) => (linkedFrom.get(p) || []).includes(ticket));

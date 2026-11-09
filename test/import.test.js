@@ -98,11 +98,12 @@ test('an Asana export becomes tickets: subtasks, sections, tags, priority, depen
   assert.match(desc, /Estimate: 5/);
   assert.match(desc, /Imported from Asana: https:\/\/app\.asana\.com\/0\/42\/1201/);
   assert.match((await fs.read(`tickets/${by('Write alt text').id}/description.md`)).text, /Alt text for all images/);
-  // Comments are history; system stories are not.
-  const events = await folio.ticketEvents(page.id);
-  assert.deepEqual(events.map((e) => e.type), ['created', 'comment']);
-  assert.equal(events[1].comment, '(Asana, Pat, 2026-10-02) Waiting on copy from the client');
-  assert.equal(page.revision, 2);
+  // Comments go to comms/, dated when they were written; system stories are not kept.
+  const said = await folio.comms({ ticket: page.id });
+  assert.deepEqual(said.map((m) => [m.kind, m.text, m.at]), [['comment', '(Asana, Pat, 2026-10-02) Waiting on copy from the client', '2026-10-02T09:00:00.000Z']]);
+  assert.match(said[0].path, /^comms\/2026-10-02-090000-asana-pat-2026-10-02-waiting-on-copy-fro\.comment\.json$/);
+  assert.deepEqual(said[0].imported, { source: 'asana', author: 'Pat', at: '2026-10-02T09:00:00.000Z' });
+  assert.equal(page.revision, 1);
   // A record of the import, and a valid folio.
   const report = JSON.parse((await fs.read(r.path)).text);
   assert.equal(report.created.length, 4);
@@ -186,7 +187,7 @@ test('a Trello board export becomes tickets', async () => {
   assert.deepEqual(a.tags, ['Doing', 'Copy']);
   assert.equal(a.target_date, '2026-11-20');
   assert.equal(b.status, 'closed');
-  assert.equal((await folio.ticketEvents(a.id))[1].comment, '(Trello, Pat, 2026-11-01) Draft is in the doc');
+  assert.equal((await folio.comms({ ticket: a.id }))[0].text, '(Trello, Pat, 2026-11-01) Draft is in the doc');
 });
 
 test('import limits and errors', async () => {

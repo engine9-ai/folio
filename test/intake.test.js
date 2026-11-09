@@ -49,10 +49,10 @@ test('a repository URL is listed once; a second drop reports the duplicate', asy
   assert.equal(repos[0].added_by, 'sam@example.com');
 });
 
-test('an email is filed under sources/email by date and subject, once, with provenance', async () => {
+test('an email is filed in comms by date and subject, once, with provenance', async () => {
   const { folio, fs } = await make();
   const [r] = await folio.add({ name: 'Donate.eml', data: bytes(EML) }, { actor, via: 'test' });
-  assert.match(r.path, /^sources\/email\/2026-11-02-donate-button-[0-9a-f]{8}\.eml$/);
+  assert.match(r.path, /^comms\/2026-11-02-donate-button-[0-9a-f]{8}\.eml$/);
   assert.equal((await fs.read(r.path)).text, EML); // original kept byte for byte
   const [again] = await folio.add({ text: EML }, { actor });
   assert.equal(again.duplicate, true);
@@ -65,23 +65,23 @@ test('an email is filed under sources/email by date and subject, once, with prov
   assert.deepEqual(rec.actor, actor);
 });
 
-test('files go to sources/uploads with Finder-style names; folder drops keep their structure', async () => {
+test('files go to attachments with Finder-style names; folder drops keep their structure', async () => {
   const { folio, fs } = await make();
   const png = new Uint8Array([137, 80, 78, 71, 0, 255]);
   const [a] = await folio.add({ name: 'shot.png', type: 'image/png', data: png }, { actor });
   const [b] = await folio.add({ name: 'shot.png', data: png }, { actor });
-  assert.equal(a.path, 'sources/uploads/shot.png');
-  assert.equal(b.path, 'sources/uploads/shot 2.png');
+  assert.equal(a.path, 'attachments/shot.png');
+  assert.equal(b.path, 'attachments/shot 2.png');
   assert.deepEqual([...(await fs.readBytes(a.path)).bytes], [...png]);
   const [c] = await folio.add({ name: 'logo.svg', path: 'Designs/v2/logo.svg', data: bytes('<svg/>') }, { actor });
-  assert.equal(c.path, 'sources/uploads/Designs/v2/logo.svg');
+  assert.equal(c.path, 'attachments/Designs/v2/logo.svg');
   const [d] = await folio.add({ name: '../../evil', data: bytes('x') }, { actor });
-  assert.equal(d.path.split('/').length, 3); // stays one file inside sources/uploads
-  assert.ok(d.path.startsWith('sources/uploads/') && !d.path.split('/').includes('..'));
+  assert.equal(d.path.split('/').length, 2); // stays one file inside attachments
+  assert.ok(d.path.startsWith('attachments/') && !d.path.split('/').includes('..'));
   const [e] = await folio.add({ name: 'brief.pdf', data: bytes('%PDF') }, { actor, folder: 'notes' });
   assert.equal(e.path, 'notes/brief.pdf'); // an explicit folder is honoured for files
   const [f] = await folio.add({ name: 'x.eml', data: bytes(EML) }, { actor, folder: 'notes' });
-  assert.match(f.path, /^sources\/email\//); // but an email always goes to sources/email
+  assert.match(f.path, /^comms\//); // but an email always goes to comms
 });
 
 test('dropped on a ticket: attachments, linked sources and links, text becomes a comment; the folio still validates', async () => {
@@ -90,7 +90,7 @@ test('dropped on a ticket: attachments, linked sources and links, text becomes a
   const [file] = await folio.add({ name: 'console.log', data: bytes('TypeError') }, { actor, ticket: 'TK-001' });
   assert.equal(file.path, 'tickets/TK-001/attachments/console.log');
   const [mail] = await folio.add({ name: 'm.eml', data: bytes(EML) }, { actor, ticket: 'TK-001' });
-  assert.match(mail.path, /^sources\/email\//);
+  assert.match(mail.path, /^comms\//);
   await folio.add({ url: 'https://status.example.com/incident/7' }, { actor, ticket: 'TK-001' });
   await folio.add({ text: 'Reproduced on iOS too' }, { actor, ticket: 'TK-001' });
   const [viaFolder] = await folio.add({ name: 'b.txt', data: bytes('b') }, { actor, folder: 'tickets/TK-001/events' });
@@ -98,7 +98,9 @@ test('dropped on a ticket: attachments, linked sources and links, text becomes a
   const { ticket } = await folio.getTicket('TK-001');
   assert.deepEqual(ticket.links.map((l) => l.type), ['attachment', 'source', 'url', 'attachment']);
   const events = await folio.ticketEvents('TK-001');
-  assert.ok(events.some((e) => e.type === 'comment' && e.comment === 'Reproduced on iOS too'));
+  const said = await folio.comms({ ticket: 'TK-001' });
+  assert.ok(said.some((m) => m.kind === 'comment' && m.text === 'Reproduced on iOS too' && m.path.startsWith('comms/') && m.path.endsWith('.comment.json')));
+  assert.ok(said.some((m) => m.kind === 'email' && m.path === mail.path)); // the ticket's conversation includes its email
   assert.ok(events.some((e) => e.type === 'linked'));
   assert.equal((await fs.list('sources/links')).length, 0); // the ticket holds the link
   const v = await validateFolio(fs);

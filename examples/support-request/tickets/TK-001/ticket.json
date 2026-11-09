@@ -9,11 +9,11 @@
     {
       "type": "source",
       "label": "Customer's original email",
-      "path": "sources/email/2026-11-02-forwarded-report.eml"
+      "path": "comms/2026-11-02-forwarded-report.eml"
     }
   ],
   "relationships": [],
-  "revision": 4,
+  "revision": 3,
   "created_at": "2026-11-02T18:00:00.000Z",
   "updated_at": "2026-11-02T21:00:00.000Z",
   "owner": "robin@example.com",

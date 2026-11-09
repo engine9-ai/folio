@@ -18,7 +18,7 @@ import { normalizePath } from './fs.js';
  */
 
 /** Top-level directories that belong to a folio's own record and never hold nested folios. */
-export const RESERVED_DIRS = Object.freeze(['tickets', 'sources', 'notes', 'history', 'indexes', 'feedback', 'artifacts', 'decisions', 'integrations', 'samples']);
+export const RESERVED_DIRS = Object.freeze(['tickets', 'comms', 'attachments', 'sources', 'notes', 'history', 'indexes', 'feedback', 'artifacts', 'decisions', 'integrations', 'samples']);
 
 /** Can `dir` (folio-relative, e.g. "phase-2" or "work/phase-2") hold a nested folio? */
 export function canHoldFolio(dir) {

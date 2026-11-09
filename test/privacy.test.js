@@ -87,7 +87,7 @@ test('a small query result with no personal data stays an ordinary file', async 
   const { fs, folio, hold } = await make();
   const [r] = await folio.add({ name: 'counts.csv', data: enc('campaign_id,gifts,total\nC-1,12,340.50\nC-2,3,75\n') }, { actor, ticket: undefined });
   assert.equal(r.kind, 'file');
-  assert.equal(r.path, 'sources/uploads/counts.csv');
+  assert.equal(r.path, 'attachments/counts.csv');
   assert.equal(hold.items.size, 0);
   const rec = JSON.parse((await fs.read((await fs.list('history/intake'))[0])).text);
   assert.deepEqual(rec.data, { format: 'csv', records: 2, fields: 3 });
@@ -235,7 +235,7 @@ test('an email with a card number and a data attachment is kept as a text copy',
   assert.match(copy, /Content-Type: text\/plain; charset=utf-8/);
   assert.doesNotMatch(copy, /4539 1488 0343 6467|multipart|base64/);
   assert.match(copy, /donors\.csv: sources\/data\//);
-  assert.match(copy, /screen\.png: sources\/email\/attachments\//);
+  assert.match(copy, /screen\.png: attachments\//);
   assert.equal(hold.items.size, 2, 'the original email and the CSV');
   const { ticket } = await folio.getTicket('TK-001');
   assert.ok(ticket.links.some((l) => l.path === email.path));

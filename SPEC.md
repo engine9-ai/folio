@@ -98,11 +98,19 @@ folios/
     AGENTS.md
     CONTEXT.md
 
+    comms/                       every message, in time order (3.1.2)
+      2026-11-02-donate-button-broken-1a2b3c4d.eml
+      2026-11-09-153012-m-r-to-confirm-the-split.comment.json
+      2026-11-09-160000-on-track-for-friday.update.json
+      2026-11-09-161500-scanned-three-tables.agent.json
+
+    attachments/                 files people add: screenshots, documents, an email's attachments
+
     tickets/
       TK-001/
         ticket.json
         description.md
-        events/
+        events/                  the ticket's changes (state history); comments are in comms/
         attachments/
       TK-002/
         ticket.json
@@ -127,13 +135,10 @@ folios/
           001/
             ...files...
 
-    sources/
-      email/
-      data/
+    sources/                     references and evidence that are not messages
+      data/                      summaries of data files and logs (8.4.1)
       links/
-      slack/
       github/
-      uploads/
 
     notes/
     integrations/
@@ -146,6 +151,25 @@ folios/
 The outer `folios/` folder is a collection of folio folders. The portable unit is **`customer-portal/` itself**, including all of its descendants (except folios nested inside it, 3.8). Where it sits in a host's folder tree (for example `acme/clients/customer-portal/`) is not part of the folio's own identity or contents.
 
 The directory layout is a convention rather than a rigid empty scaffold. Only `folio.json` and `README.md` are required for a minimal folio. All optional directories can be absent until used. A folio created manually with those two files should be recognisable without a platform-generated database record.
+
+### 3.1.2 Communications and assets
+
+**All back-and-forth about the work lives in one folder, `comms/`**, whatever form it took: emails, comments (on the folio or on a ticket), status updates, agents' reports, captured chats, and summaries. **The extension says what a message is**, and the name starts with its date and time, so the folder lists in order and a conversation reads top to bottom:
+
+| File | Kind |
+|---|---|
+| `*.eml` (and `*.msg`) | An email, as received (or a text copy, 3.7) |
+| `*.comment.json` | A comment, on the folio or (with `ticket`) on a ticket |
+| `*.update.json` | A status update |
+| `*.agent.json` | What an agent did or found, in its own words |
+| `*.chat.json` | A captured chat thread (Slack and the like) |
+| `*.summary.md` | A summary that stands in for the messages before its date |
+
+A message file is JSON: `{ "at", "kind", "author": { "type", "id", "on_behalf_of"? }, "via", "text", "ticket"?, "attachments"?: [paths], "imported"? }`. Messages are written once and never edited, so they need no locking and never conflict with ticket edits.
+
+**Files are assets and live apart**, in `attachments/` (and a ticket's own `attachments/`); a message refers to them by path. Keeping the conversation in one folder of small files makes it easy to read, search, summarise and compress (older messages can be replaced by a `*.summary.md`), without visiting a folder per kind of message.
+
+Folios written before `comms/` existed kept emails in `sources/email/`, uploads in `sources/uploads/`, and comments as ticket events. Readers still understand them, and `folio.upgradeLayout()` moves them into this layout.
 
 ### 3.1.1 Folders all the way down
 
@@ -512,7 +536,7 @@ Sources provide the original context for work. The product should preserve origi
 
 > **In version 1:** an email reaches a folio in three ways, all filed by the same rule (8.6): **forwarding** it to the folio's intake address (`<folio-id>@<intake domain>`, or `<folio-id>+TK-001@…` to attach it to a ticket), **dragging** it from a desktop mail client (Apple Mail, Outlook, Thunderbird give the browser an `.eml` or `.msg` file), or adding an `.eml` file by hand. The hosting service accepts a forwarded email only from a sender who may write to that folio. Not yet: thread matching for replies, and splitting a forwarded wrapper from the original it carries.
 >
-> Each email is stored once, as received, at `sources/email/<date>-<subject>-<hash>.eml` (unless it carries content 3.7 forbids or data-file attachments: then the folio keeps a text copy with its original headers, its readable text scrubbed, an `X-Folio-Copy` header and a list of where each attachment went; data attachments are summarised as in 8.4.1, other attachments go to `sources/email/attachments/<email>/`, and the original is held temporarily) (Outlook `.msg` files keep their own format). The date is the email's own `Date`, the hash comes from its `Message-ID` (or its bytes), so a second delivery of the same message is recognised and not stored again. The header summary (from, to, subject, date, message id) is read from the file whenever it is needed, and recorded with the intake provenance in `history/intake/`.
+> Each email is stored once, as received, at `comms/<date>-<subject>-<hash>.eml`, with every other message (3.1.2) (unless it carries content 3.7 forbids or data-file attachments: then the folio keeps a text copy with its original headers, its readable text scrubbed, an `X-Folio-Copy` header and a list of where each attachment went; data attachments are summarised as in 8.4.1, other attachments go to `attachments/<email>/`, and the original is held temporarily) (Outlook `.msg` files keep their own format). The date is the email's own `Date`, the hash comes from its `Message-ID` (or its bytes), so a second delivery of the same message is recognised and not stored again. The header summary (from, to, subject, date, message id) is read from the file whenever it is needed, and recorded with the intake provenance in `history/intake/`.
 
 Each folio may receive relevant support emails through an assigned intake address, forwarding rule, or explicit import. Inbound email should be retained as an original message, with useful metadata such as sender, recipients, date, subject, message identifier, thread identity, and attachments.
 
@@ -561,18 +585,19 @@ Whatever adds something to a folio (a drag and drop in the browser, an upload, a
 | Item | Recognised by | Goes to |
 |---|---|---|
 | Git repository | A GitHub, GitLab or Bitbucket URL (including links to an issue, pull request or file inside one), an `ssh://`/`git@` address, or a URL ending in `.git` | Listed in `folio.json` `repositories` (3.2.1). Already listed: reported, not duplicated. |
-| Email | `.eml` / `message/rfc822`, Outlook `.msg`, or text that starts with an email header block | `sources/email/` (8.1) |
+| Email | `.eml` / `message/rfc822`, Outlook `.msg`, or text that starts with an email header block | `comms/` (3.1.2, 8.1) |
 | Other link | Any other URL (also `.webloc` and `.url` shortcut files) | `sources/links/<date>-<site>-<hash>.json`, holding the URL and who added it |
 | Text | Dropped, pasted or typed text that is not a URL, an email or JSON | `notes/<date>-<title>.md`, `.html` or `.txt`: **Markdown, HTML or plain text by what it looks like** (below). The title is the first heading, an HTML `<title>`/`<h1>`, or the first line |
 | An export from another tool | An Asana or Trello JSON export, or `{ "tickets": [...] }`, dropped as a `.json` file or pasted | Tickets (4.4.1) |
 | Other JSON | Pasted JSON that is not an export | Filed as a dropped `.json` file would be: a list of records is data, anything else a file |
 | Data file or log | CSV, TSV, JSON records, JSON Lines, logs, spreadsheets, dumps (8.4.1) | A summary in `sources/data/`, the original in temporary storage; small files with no personal data are filed as ordinary files |
 | Refused | Key and credential files (`.env`, `.pem`, `id_rsa`, `.kdbx`, …) | Not stored (3.7) |
-| File | Anything else | `sources/uploads/` (8.4), keeping a dropped folder's structure; a name already in use gets a number ("report 2.pdf"). Text files have prohibited content (3.7) removed; images and other binary files keep their bytes |
+| Comment or update | Text added on a ticket, or text added with `as: "comment"` / `"update"` | A message in `comms/` (3.1.2) |
+| File | Anything else | `attachments/` (8.4), keeping a dropped folder's structure; a name already in use gets a number ("report 2.pdf"). Text files have prohibited content (3.7) removed; images and other binary files keep their bytes |
 
 Where it was dropped refines this:
 
-- **On a ticket:** files go to `tickets/<id>/attachments/`; emails still go to `sources/email/`; the ticket gets a link to each (`links`, with a `linked` event in its history). A link is recorded on the ticket instead of `sources/links/`. Text becomes a comment.
+- **On a ticket:** files go to `tickets/<id>/attachments/`; emails still go to `comms/`; the ticket gets a link to each (`links`, with a `linked` event in its history). A link is recorded on the ticket instead of `sources/links/`. Text becomes a comment.
 - **On a folder:** files go into that folder (a folder inside a ticket means that ticket's attachments). Emails, repositories and links still go to their own places.
 
 **Text formats.** Text is HTML when it is a document (`<!doctype html>`, `<html>`) or mostly markup (starts with a tag and has several); Markdown when it has two or more signs of it (a heading, code fence, table or task list counts double; links, emphasis, lists, quotes, inline code and rules count once; three or more bullets count too); otherwise plain text. Detection is a guess, so:
