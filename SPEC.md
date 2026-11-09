@@ -758,21 +758,18 @@ A folder opens as a **board**, like a project's task board: every folio inside i
 
 ### 13.2 Folio overview
 
-The first screen should communicate:
+A folio opens as itself, like a case in a help desk or a task in Asana, not as a folder. Its main view shows, on one page:
 
-- Folio title, purpose, status, important dates, and where it is (its folder path).
-- The folios inside it: what is ready, in progress, waiting and blocked.
-- Items awaiting customer response or review.
-- Latest artifacts and currently shared previews.
-- Recent significant activity and decisions.
-- Relevant repositories and connections, including unavailable ones.
-- Quick actions such as New Folio (a one-line add creates a `ticket`), Add (paste, type or drop), Request Feedback, Upload Artifact, Share Preview, and, for managers, New Folio Inside.
+- Title, state (with the reason when it is blocked, waiting or a draft) and Mark Done.
+- Description, files (attachments and notes), and the folios inside it (sub-tickets), with a one-line add.
+- The whole conversation from `comms/` (emails, comments, updates, agents' reports) in time order, with a composer that takes text and files.
+- A details column: status, type, priority, owner, target date, tags, what it waits on, its email address, repositories, recent changes and sharing.
 
-For a small folio, this screen should feel simple rather than empty. For a larger folio, it should offer a concise route to the detail without becoming a dashboard requiring constant maintenance.
+Everything is edited in place, and anything dropped on the page is added to the folio. Folios inside a folio are secondary: they show within it, not alongside it in lists of folios or on its folder's board (its card counts them). For a small folio this page should feel simple rather than empty; for a larger one it should offer a concise route to the detail without becoming a dashboard requiring constant maintenance.
 
 ### 13.3 Work inside a folio
 
-The folios inside a folio (or a folder) are shown as a **board** (13.1.1) or a **list** with Name, Type, Status, State (readiness), Priority, Owner and Modified columns, sortable and filterable by tag, plus a Ready view. Opening one shows its own page or a Quick Look panel: status, type, priority, owner, tags, blockers, conversation and files together, with drop and quick add.
+The folios inside a folio can also be shown on their own (and a folder's folios are shown) as a **board** (13.1.1) or a **list** with Name, Type, Status, State (readiness), Priority, Owner and Modified columns, sortable and filterable by tag, plus a Ready view. Opening one shows its own page or a Quick Look panel: status, type, priority, owner, tags, blockers, conversation and files together, with drop and quick add.
 
 ### 13.4 Feedback workspace
 
