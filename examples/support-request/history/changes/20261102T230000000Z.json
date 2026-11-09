@@ -1,0 +1,16 @@
+{
+  "at": "2026-11-02T23:00:00.000Z",
+  "actor": {
+    "type": "user",
+    "id": "robin@example.com",
+    "name": "Robin (engineer)"
+  },
+  "via": "example",
+  "type": "updated",
+  "changes": {
+    "owner": {
+      "from": null,
+      "to": "robin@example.com"
+    }
+  }
+}

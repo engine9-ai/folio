@@ -1,11 +1,11 @@
 # Folio
 
-**A folio is a folder.** Its files are the complete, portable record of a bounded piece of work: tickets, correspondence, decisions, feedback, artifacts and the git repositories involved. This repository holds the format specification, a guide to using folios, and a JavaScript library and CLI for working with folios (its one dependency is [`@engine9/pii-classifier`](https://github.com/engine9-ai/pii-classifier), itself dependency-free).
+**A folio is a folder.** Its files are the complete, portable record of a bounded piece of work: its status, the work inside it (folios inside folios), correspondence, decisions, feedback, artifacts and the git repositories involved. This repository holds the format specification, a guide to using folios, and a JavaScript library and CLI for working with folios (its one dependency is [`@engine9/pii-classifier`](https://github.com/engine9-ai/pii-classifier), itself dependency-free).
 
 - [`GUIDE.md`](GUIDE.md): **how to use folios**: what they are for, where things go, and what they must not hold (credentials, card and bank numbers, other people's personal data, codebases).
 - [`SPEC.md`](SPEC.md): the product and format specification (living document).
 - [`src/`](src): the library. Storage-agnostic: the same code runs over a local folder, memory, or Cloudflare R2.
-- [`examples/`](examples): real folio folders. `support-request` is the smallest useful folio; `website-refresh` has hierarchy, blockers, a decision, a feedback response and an artifact.
+- [`examples/`](examples): real folio folders. `support-request` is the smallest useful folio; `website-refresh` has folios inside folios, blockers, a decision, a feedback response and an artifact.
 - Hosted service: [`folio-server`](https://github.com/engine9-ai/folio-server), live at `folio.engine9.ai`.
 
 Not yet on npm. Until then, depend on the repository (`"@engine9/folio": "github:engine9-ai/folio"`); it pulls `@engine9/pii-classifier` from GitHub the same way.
@@ -15,11 +15,14 @@ Not yet on npm. Until then, depend on the repository (`"@engine9/folio": "github
 ```bash
 node bin/folio.js init ./my-folio --title "Broken donation form"
 node bin/folio.js repo add ./my-folio engine9-ai/folio-server --purpose "Server" --role primary
-node bin/folio.js ticket new ./my-folio --title "Donate button spins" --type bug --priority urgent
-node bin/folio.js ticket relate ./my-folio TK-002 blocked_by TK-001
+node bin/folio.js new ./my-folio --title "Donate button spins" --type bug --priority urgent   # a folio inside the folio
+node bin/folio.js relate ./my-folio/release-the-fix blocked_by fol-ab12cd
+node bin/folio.js set ./my-folio/donate-button-spins --status active --owner robin@example.com
+node bin/folio.js list ./my-folio         # the folios inside it, with status and readiness
+node bin/folio.js history ./my-folio      # every change to folio.json
 node bin/folio.js add ./my-folio report.eml https://github.com/a/b screenshot.png   # filed where each belongs
 node bin/folio.js add ./my-folio "# Kickoff notes ..."    # text: saved as .md, .html or .txt by what it is (--as to choose)
-node bin/folio.js import ./my-folio asana-export.json     # Asana / Trello / { tickets: [...] } -> tickets
+node bin/folio.js import ./my-folio asana-export.json     # Asana / Trello / { folios: [...] } -> folios inside it
 node bin/folio.js retype ./my-folio notes/2026-11-09-kickoff.txt markdown
 node bin/folio.js ready ./my-folio        # what could someone start now?
 node bin/folio.js validate ./my-folio     # broken references, loops, secrets, unattested edits
@@ -31,46 +34,53 @@ node bin/folio.js validate ./my-folio     # broken references, loops, secrets, u
 import { Folio, MemoryFs } from '@engine9/folio';
 import { NodeFs } from '@engine9/folio/node';
 
-const folio = await Folio.open(new NodeFs('./examples/website-refresh'));
-const ready = await folio.readyTickets();           // each carries a plain-language reason
-await folio.updateTicket('TK-002', { status: 'in_progress' }, { actor: { type: 'user', id: 'sam' }, expectedRevision: 1 });
+const folio = await Folio.open(new NodeFs('./examples/website-refresh'), { nested: 'detect' });
+const actor = { type: 'user', id: 'sam@example.com' };
+
+// Work is folios inside folios. A ticket is a folio of type 'ticket'.
+const bug = await folio.createChild({ title: 'Donate button spins', type: 'bug', priority: 'urgent' }, { actor });
+await bug.folio.edit({ status: 'active', owner: 'robin@example.com', tags: 'payments, safari' }, { actor });
+await bug.folio.relate('blocked_by', 'fol-ab12cd', { actor });
+const kids = await folio.children();                // [{ dir, id, title, type, status, priority, tags, readiness }]
+const { folios, ready } = await folio.overview();    // counts by readiness, and what could be started now
+await folio.history();                               // every change to folio.json: who, when, from → to
 const { ok, problems } = await folio.validate();
 
 // Add anything; the folio decides where it goes (SPEC 8.6).
 await folio.add({ url: 'https://github.com/engine9-ai/folio' }, { actor });             // listed in folio.json
 await folio.add({ name: 'report.eml', data: emlBytes }, { actor });                      // comms/ (with comments, updates and agents' reports)
-await folio.add({ name: 'screenshot.png', data: pngBytes }, { actor, ticket: 'TK-002' }); // ticket attachment, linked
+await bug.folio.add({ name: 'screenshot.png', data: pngBytes }, { actor });           // that folio's attachments/
 await folio.add({ name: 'donors.csv', data: csvBytes }, { actor });                       // summary in sources/data/, original to `hold`
-await folio.comment('TK-002', 'Reproduced on iOS', { actor });                     // comms/…comment.json
+await bug.folio.comment('Reproduced on iOS', { actor });                           // comms/…comment.json
 await folio.post('update', 'On track for Friday', { actor });                       // comms/…update.json
-await folio.comms({ ticket: 'TK-002' });  // the conversation in time order: messages, emails
-await folio.emails({ ticket: 'TK-002' }); // filed emails linked from TK-002: headers, readable body text, linking tickets
+await bug.folio.comms();   // the conversation in time order: messages, emails
+await folio.emails();      // filed emails: headers, readable body text
 
 // Pasted text: Markdown, HTML or plain text by detection; `as` overrides; the type can be changed after.
 folio.choices({ text: pasted });                        // { kind, as: 'markdown', label, where, choices: [...] }
 const [note] = await folio.add({ text: pasted }, { actor });                  // notes/2026-11-09-kickoff.md
-await folio.setTextFormat(note.path, 'html', { actor });                      // renamed; tickets linking to it follow
-// Exports from other tools become tickets; importing again skips what is already there.
+await folio.setTextFormat(note.path, 'html', { actor });                      // renamed; links to it follow
+// Exports from other tools become folios inside this one; importing again skips what is already there.
 await folio.import(asanaJson, { actor });                                     // or folio.add({ name: 'x.json', data })
 
-// Folders all the way down: a folio inside a folio is hidden from the outer one.
-const outer = await Folio.open(new NodeFs('./acme/site'), { nested: 'detect' });
+// Folios written with tickets/ (before 1.0): convert them into folios inside the folio.
+await folio.upgradeLayout({ actor });               // also moves sources/email → comms, uploads → attachments
 ```
 
 Behaviours worth knowing:
 
-- **Safe concurrent edits.** Each ticket change claims a create-only event file for the next revision, then writes `ticket.json` conditionally. Two writers cannot both succeed; the loser gets a `ConflictError`, and a failed edit leaves nothing behind.
-- **Inverse relationships are computed**, never stored, so they cannot drift from the files.
+- **Safe concurrent edits.** `updateManifest(patch, { ifMatch })` writes `folio.json` conditionally; a stale etag gets a `ConflictError`. Every change is recorded in `history/changes/` (`{ at, actor, via, type, changes: { field: { from, to } } }`), and edits that change nothing record nothing.
+- **Readiness is computed** from status, `hold`, `waiting_on` and `blocked_by` (`readiness(manifest, statusOf)`), never stored. `blocked_by` loops are refused (`wouldCycle`).
 - **Repository listing is by reference.** Entries in `folio.json` work with no integration; every entry reads as `reference_only` in this library.
-- **Unknown fields are preserved** when tickets and manifests are edited.
-- **Reading email.** `parseEmail(text)` returns headers plus readable body text (plain, quoted-printable, base64, multipart; HTML reduced to text). `folio.emails({ ticket })` lists a folio's filed emails with that text and the tickets that link to each, so hosts can show or summarise them. Stored bytes are never changed.
+- **Unknown fields are preserved** when manifests are edited.
+- **Reading email.** `parseEmail(text)` returns headers plus readable body text (plain, quoted-printable, base64, multipart; HTML reduced to text). `folio.emails()` lists a folio's filed emails with that text, so hosts can show or summarise them. Stored bytes are never changed.
 - **Content policy lives here too** (SPEC 3.7, [GUIDE.md](GUIDE.md)). Intake removes credentials and card, bank and Social Security numbers from text, refuses key files, skips `.git`/`node_modules`, and summarises data files and logs (`summarizeData`, using [`@engine9/pii-classifier`](https://github.com/engine9-ai/pii-classifier)) into `sources/data/` instead of storing them. The originals go to the `hold` you pass to `Folio.open(fs, { hold })` (folio-server: R2; CLI: `LocalHold`, `~/.folio/hold`). `scrubText(text)` and `prohibitedIn(text)` are exported for hosts.
-- **Intake routing lives here.** `folio.add(item, { ticket, folder })` recognises repositories, emails, links, text and files and puts each in the right place, with provenance under `history/intake/`. Hosts (the browser, email forwarding, MCP, the CLI) only hand items over.
-- **Binary files.** `write(path, data)` takes a string or a `Uint8Array`; stores may add `readBytes(path)`. Ticket and manifest files stay JSON text.
-- **Tickets carry tags** (`tags` in `ticket.json`); the older `labels` field still reads.
-- **Text formats.** `detectTextFormat(text)` says Markdown, HTML or plain text (with reasons); `titleOfText` and `htmlToText` are exported. Intake items may carry `as` (`markdown`, `html`, `text`, `json`, `import`, `comment`, `file`) and `name`.
-- **Imports.** `detectImport(json)` recognises Asana, Trello and `{ tickets }` exports; `folio.import()` creates the tickets in one pass (ids claimed first, so subtasks and dependencies point at the right tickets), records `external: { source, id, url }` on each, and writes a report to `history/imports/`.
-- **Folders all the way down.** A folder with a `folio.json` is a folio; folios can hold folios. `Folio.open(fs, { nested })` takes the nested folios' folders (or `'detect'`) and hides them through `ExcludingFs`; `nestedFolioDirs(fs)` finds them. Folio's own directories (`RESERVED_DIRS`) never hold nested folios.
+- **Intake routing lives here.** `folio.add(item, { folder })` recognises repositories, emails, links, text and files and puts each in the right place, with provenance under `history/intake/`. Hosts (the browser, email forwarding, MCP, the CLI) only hand items over.
+- **Binary files.** `write(path, data)` takes a string or a `Uint8Array`; stores may add `readBytes(path)`. Manifest and message files stay JSON text.
+- **Every folio carries** `type`, `priority`, `tags`, `owner`, `target_date`, `outcome`, `resolution`, `waiting_on`, `hold`, `relationships`, `links`, `external` and `aliases` (SPEC 5.1). `EDITABLE` lists what `edit()` accepts; custom types and statuses are allowed with a warning.
+- **Text formats.** `detectTextFormat(text)` says Markdown, HTML or plain text (with reasons); `titleOfText` and `htmlToText` are exported. Intake items may carry `as` (`markdown`, `html`, `text`, `json`, `import`, `comment`, `update`, `file`) and `name`.
+- **Imports.** `detectImport(json)` recognises Asana, Trello and `{ folios }` exports; `folio.import()` creates folios inside the folio in one pass (ids claimed first, so dependencies can point at folios not yet written; subtasks go inside their task), records `external: { source, id, url }` on each, and writes a report to `history/imports/`.
+- **Folders all the way down.** A folder with a `folio.json` is a folio; folios can hold folios. `Folio.open(fs, { nested })` takes the nested folios' folders (or `'detect'`) and hides them through `ExcludingFs`; `nestedFolioDirs(fs)` finds them; `folio.child(dir)` opens one through `SubFs`, and `createChild` makes one (and calls the host's `onChild`). Folio's own directories (`RESERVED_DIRS`) never hold nested folios.
 - **No permissions in a folio.** Access rules belong to the hosting service.
 - `NodeFs` overwrites are check-then-write; protect against other processes writing the same folder yourself.
 

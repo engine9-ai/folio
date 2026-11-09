@@ -1,22 +1,24 @@
 import { ValidationError } from './errors.js';
 import { htmlToText } from './text-format.js';
-import { TICKET_PRIORITIES, TICKET_TYPES } from './tickets.js';
+import { FOLIO_STATUSES } from './manifest.js';
+import { FOLIO_PRIORITIES, FOLIO_TYPES } from './relations.js';
 
 /**
  * Importing work from other tools. An export (a JSON file, or JSON pasted as text) is recognised by its shape and
- * turned into tickets. Recognised formats:
+ * turned into folios. Recognised formats:
  *
  *   asana          Asana's JSON export or API responses: { data: [task, ...] }, { data: task } or [task, ...].
  *                  Subtasks, sections, tags, assignees, due dates, completion, a "Priority" custom field,
  *                  dependencies and comments (stories) are kept.
  *   trello         A Trello board export: { cards, lists, labels, actions? }.
- *   folio-tickets  { tickets: [{ title, description?, type?, status?, priority?, tags?, ... }] }, for agents and scripts.
+ *   folio-list     { folios: [{ title, description?, type?, status?, priority?, tags?, ... }] }, for agents and scripts
+ *                  (the older { tickets: [...] } is read too).
  *
- * Each imported ticket remembers where it came from in `external` ({ source, id, url }), so importing the same
+ * Each imported folio remembers where it came from in `external` ({ source, id, url }), so importing the same
  * export again skips what is already there. Nothing else from the export is kept in the folio.
  */
 
-export const MAX_IMPORT_TICKETS = 500;
+export const MAX_IMPORT_ITEMS = 500;
 
 const str = (v) => (typeof v === 'string' ? v : v === null || v === undefined ? '' : String(v));
 const day = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : undefined);
@@ -32,12 +34,15 @@ function priorityFrom(value) {
 }
 const typeFrom = (value) => {
   const v = str(value).toLowerCase().trim();
-  return TICKET_TYPES.find((t) => t === v || `${t}s` === v) || (/defect|issue/.test(v) ? 'bug' : undefined);
+  return FOLIO_TYPES.find((t) => t === v || `${t}s` === v) || (/defect|issue/.test(v) ? 'bug' : undefined);
 };
 function statusFromLabel(label) {
   const v = str(label).toLowerCase();
-  if (/in[ -]?progress|doing|working|started|wip/.test(v)) return 'in_progress';
-  if (/blocked|on hold|waiting/.test(v)) return 'blocked';
+  if (/in[ -]?progress|doing|working|started|wip/.test(v)) return 'active';
+  if (/blocked|on hold|waiting/.test(v)) return 'waiting';
+  if (/review|approv|qa\b/.test(v)) return 'review';
+  if (/up ?next|upcoming|this week|planned|priorit|to ?do|scheduled/.test(v)) return 'planned';
+  if (/backburner|backlog|someday|icebox|later/.test(v)) return 'backlog';
   return undefined;
 }
 const notSection = (name) => !/^(untitled section|\(no section\)|no section)$/i.test(str(name).trim());
@@ -75,7 +80,7 @@ function asanaDetect(doc) {
   walk(tasks, 0);
   if (!total) return null;
   const project = tasks.flatMap((t) => (t.memberships || []).map((m) => m?.project?.name).concat((t.projects || []).map((p) => p?.name))).find(Boolean);
-  return { tickets: total, subtasks: sub, sections: sections.size, ...(project ? { project } : {}) };
+  return { items: total, subtasks: sub, sections: sections.size, ...(project ? { project } : {}) };
 }
 
 function asanaPlan(doc) {
@@ -101,7 +106,7 @@ function asanaPlan(doc) {
       ...(t.start_on ? [`Start: ${t.start_on}`] : []),
       `Imported from Asana${t.permalink_url ? `: ${t.permalink_url}` : ` (task ${t.gid})`}`,
     ];
-    const status = t.completed ? 'closed' : statusFromLabel(fieldValue(sField)) || sections.map(statusFromLabel).find(Boolean) || 'open';
+    const status = t.completed ? 'completed' : statusFromLabel(fieldValue(sField)) || sections.map(statusFromLabel).find(Boolean) || 'backlog';
     const comments = (Array.isArray(t.stories) ? t.stories : [])
       .filter((s) => s && (s.type === 'comment' || s.resource_subtype === 'comment_added') && str(s.text).trim())
       .map((s) => ({ text: str(s.text), author: s.created_by?.name || null, at: s.created_at || null }));
@@ -109,9 +114,9 @@ function asanaPlan(doc) {
       key: t.gid,
       title: t.name.trim() || `Asana task ${t.gid}`,
       description: [notes, footer.join('\n')].filter(Boolean).join('\n\n---\n'),
-      type: typeFrom(fieldValue(tField)) || (t.resource_subtype === 'approval' ? 'review' : 'request'),
+      type: typeFrom(fieldValue(tField)) || (t.resource_subtype === 'approval' ? 'review' : 'ticket'),
       status,
-      ...(status === 'closed' ? { resolution: 'completed' } : {}),
+      ...(status === 'completed' ? { resolution: 'completed' } : {}),
       priority: priorityFrom(fieldValue(pField)) || 'normal',
       tags: [...sections, ...(t.tags || []).map((g) => g?.name).filter(Boolean), ...(t.resource_subtype === 'milestone' ? ['milestone'] : [])],
       ...(t.assignee ? { owner: t.assignee.email || t.assignee.name || undefined } : {}),
@@ -134,7 +139,7 @@ function trelloDetect(doc) {
   if (!doc || typeof doc !== 'object' || !Array.isArray(doc.cards) || !Array.isArray(doc.lists)) return null;
   const cards = doc.cards.filter((c) => c && typeof c.id === 'string' && typeof c.name === 'string' && 'idList' in c);
   if (!cards.length || cards.length / doc.cards.length < 0.8) return null;
-  return { tickets: cards.length, lists: doc.lists.length, ...(doc.name ? { project: doc.name } : {}) };
+  return { items: cards.length, lists: doc.lists.length, ...(doc.name ? { project: doc.name } : {}) };
 }
 
 function trelloPlan(doc) {
@@ -150,15 +155,15 @@ function trelloPlan(doc) {
     .map((c) => {
       const list = lists.get(c.idList);
       const done = c.dueComplete || /^(done|complete[d]?|finished|shipped)$/i.test(str(list?.name).trim());
-      const status = done ? 'closed' : c.closed || list?.closed ? 'cancelled' : statusFromLabel(list?.name) || 'open';
+      const status = done ? 'completed' : c.closed || list?.closed ? 'archived' : statusFromLabel(list?.name) || 'backlog';
       const tagNames = [...(c.labels || []).map((l) => l?.name || l?.color), ...(c.idLabels || []).map((id) => labels.get(id))].filter(Boolean);
       return {
         key: c.id,
         title: c.name.trim() || `Trello card ${c.id}`,
         description: [str(c.desc).trim(), `Imported from Trello${c.shortUrl || c.url ? `: ${c.shortUrl || c.url}` : ''}`].filter(Boolean).join('\n\n---\n'),
-        type: 'request',
+        type: 'ticket',
         status,
-        ...(status === 'closed' ? { resolution: 'completed' } : {}),
+        ...(status === 'completed' ? { resolution: 'completed' } : status === 'archived' ? { resolution: 'cancelled' } : {}),
         priority: priorityFrom(tagNames.find((n) => priorityFrom(n))) || 'normal',
         tags: [...(list?.name ? [list.name] : []), ...tagNames.filter((n) => !priorityFrom(n))],
         ...(day(c.due) ? { target_date: day(c.due) } : {}),
@@ -171,33 +176,37 @@ function trelloPlan(doc) {
     });
 }
 
-// ---- Folio's own ticket list ----
+// ---- Folio's own list ----
+
+const listOf = (doc) => (doc && typeof doc === 'object' && !Array.isArray(doc) ? (Array.isArray(doc.folios) ? doc.folios : Array.isArray(doc.tickets) ? doc.tickets : null) : null);
 
 function folioTicketsDetect(doc) {
-  if (!doc || typeof doc !== 'object' || Array.isArray(doc) || !Array.isArray(doc.tickets) || !doc.tickets.length) return null;
-  if (!doc.tickets.every((t) => t && typeof t === 'object' && typeof t.title === 'string')) return null;
-  return { tickets: doc.tickets.length, ...(doc.title ? { project: str(doc.title) } : {}) };
+  const list = listOf(doc);
+  if (!list?.length || !list.every((t) => t && typeof t === 'object' && typeof t.title === 'string')) return null;
+  return { items: list.length, ...(doc.title ? { project: str(doc.title) } : {}) };
 }
 
 function folioTicketsPlan(doc) {
-  return doc.tickets.map((t, i) => {
+  return listOf(doc).map((t, i) => {
     // Entries without an id get a positional key that cannot collide with a real id.
     const key = t.id ?? t.key ?? t.external?.id;
     const k = key === undefined || key === null || key === '' ? `#${i + 1}` : str(key);
-    const status = ['open', 'in_progress', 'blocked', 'resolved', 'closed', 'cancelled'].includes(t.status) ? t.status : 'open';
+    // Folio statuses, or the older ticket statuses.
+    const OLD = { open: 'backlog', in_progress: 'active', blocked: 'waiting', resolved: 'review', closed: 'completed', cancelled: 'archived' };
+    const status = OLD[t.status] || (FOLIO_STATUSES.includes(t.status) ? t.status : 'backlog');
     return {
       key: k,
       title: t.title,
       description: str(t.description),
-      type: typeFrom(t.type) || 'request',
+      type: typeFrom(t.type) || (t.type && /^[a-z][a-z0-9_-]{0,39}$/.test(t.type) ? t.type : 'ticket'),
       status,
-      ...(status === 'closed' ? { resolution: str(t.resolution) || 'completed' } : t.resolution ? { resolution: str(t.resolution) } : {}),
-      priority: TICKET_PRIORITIES.includes(t.priority) ? t.priority : priorityFrom(t.priority) || 'normal',
+      ...(status === 'completed' ? { resolution: str(t.resolution) || 'completed' } : t.resolution ? { resolution: str(t.resolution) } : {}),
+      priority: FOLIO_PRIORITIES.includes(t.priority) ? t.priority : priorityFrom(t.priority) || 'normal',
       tags: Array.isArray(t.tags) ? t.tags.map(str) : typeof t.tags === 'string' ? t.tags.split(',') : [],
       ...(t.owner ? { owner: str(t.owner) } : {}),
       ...(t.outcome ? { outcome: str(t.outcome) } : {}),
       ...(day(t.target_date) ? { target_date: day(t.target_date) } : {}),
-      external: { source: str(t.external?.source || doc.source || 'folio-tickets'), id: k, ...(t.external?.url || t.url ? { url: str(t.external?.url || t.url) } : {}) },
+      external: { source: str(t.external?.source || doc.source || 'folio-list'), id: k, ...(t.external?.url || t.url ? { url: str(t.external?.url || t.url) } : {}) },
       ...(Array.isArray(t.links) ? { links: t.links.filter((l) => l && (l.url || l.path)) } : {}),
       parent: t.parent != null ? str(t.parent) : null,
       blocked_by: (Array.isArray(t.blocked_by) ? t.blocked_by : []).map(str),
@@ -209,7 +218,7 @@ function folioTicketsPlan(doc) {
 export const IMPORTERS = Object.freeze([
   { format: 'asana', label: 'Asana', detect: asanaDetect, plan: asanaPlan },
   { format: 'trello', label: 'Trello', detect: trelloDetect, plan: trelloPlan },
-  { format: 'folio-tickets', label: 'Folio tickets', detect: folioTicketsDetect, plan: folioTicketsPlan },
+  { format: 'folio-list', label: 'Folio list', detect: folioTicketsDetect, plan: folioTicketsPlan },
 ]);
 export const IMPORT_FORMATS = IMPORTERS.map((i) => i.format);
 
@@ -226,7 +235,7 @@ export function parseJsonText(input, max = 30 * 1024 * 1024) {
 }
 
 /**
- * Which importer, if any, recognises this parsed JSON. Returns { format, label, tickets, ... } or null.
+ * Which importer, if any, recognises this parsed JSON. Returns { format, label, items, ... } or null.
  * `format` forces one importer (null if it does not recognise the document).
  */
 export function detectImport(doc, { format } = {}) {
@@ -238,11 +247,11 @@ export function detectImport(doc, { format } = {}) {
   return null;
 }
 
-/** The ticket plans for a document: [{ key, title, description, ..., parent, blocked_by, comments }]. */
+/** The import plans for a document: [{ key, title, description, ..., parent, blocked_by, comments }]. */
 export function planImport(doc, { format } = {}) {
   const found = detectImport(doc, { format });
   if (!found) throw new ValidationError(`This is not an export Folio can import (${IMPORTERS.map((i) => i.label).join(', ')})`);
   const plans = IMPORTERS.find((i) => i.format === found.format).plan(doc);
-  if (plans.length > MAX_IMPORT_TICKETS) throw new ValidationError(`That export has ${plans.length} tickets; Folio imports up to ${MAX_IMPORT_TICKETS} at a time. Split it into smaller exports.`);
+  if (plans.length > MAX_IMPORT_ITEMS) throw new ValidationError(`That export has ${plans.length} items; Folio imports up to ${MAX_IMPORT_ITEMS} at a time. Split it into smaller exports.`);
   return { ...found, plans };
 }

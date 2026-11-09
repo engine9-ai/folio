@@ -93,15 +93,14 @@ test('a small query result with no personal data stays an ordinary file', async 
   assert.deepEqual(rec.data, { format: 'csv', records: 2, fields: 3 });
 });
 
-test('a data file dropped on a ticket is linked from it', async () => {
-  const { folio } = await make();
-  await folio.createTicket({ title: 'Gift totals wrong' }, { actor });
-  const [r] = await folio.add({ name: 'gifts.jsonl', data: enc(Array.from({ length: 80 }, (_, i) => JSON.stringify({ id: i, member: { email: `m${i}@example.net`, name: 'x' }, amount: i })).join('\n')) }, { actor, ticket: 'TK-001' });
+test('a data file dropped on a folio inside a folio is summarised there', async () => {
+  const { folio, fs } = await make();
+  const { folio: gifts, dir } = await folio.createChild({ title: 'Gift totals wrong' }, { actor });
+  const [r] = await gifts.add({ name: 'gifts.jsonl', data: enc(Array.from({ length: 80 }, (_, i) => JSON.stringify({ id: i, member: { email: `m${i}@example.net`, name: 'x' }, amount: i })).join('\n')) }, { actor });
   assert.equal(r.kind, 'data');
   assert.equal(r.records, 80);
   assert.ok(r.pii.includes('EMAIL'));
-  const { ticket } = await folio.getTicket('TK-001');
-  assert.ok(ticket.links.some((l) => l.path === r.path && l.label === 'Data: gifts.jsonl'));
+  assert.equal(await fs.exists(`${dir}/${r.path}`), true);
 });
 
 test('logs: lines, time range, levels, redacted samples', async () => {
@@ -148,7 +147,7 @@ test('JSON that is not a list of records is an ordinary file', () => {
   assert.equal(classify({ name: 'rows.json', data: enc('{"results":[{"a":1},{"a":2}]}') }).kind, 'data');
 });
 
-test('notes, comments and ticket descriptions lose card numbers and credentials', async () => {
+test('notes, comments and folio descriptions lose card numbers and credentials', async () => {
   const { fs, folio } = await make();
   const [n] = await folio.add({ text: 'Admin login: password: Hunter2-prod\nDonor paid with 4539 1488 0343 6467, test card 4242 4242 4242 4242' }, { actor });
   const saved = (await fs.read(n.path)).text;
@@ -157,11 +156,11 @@ test('notes, comments and ticket descriptions lose card numbers and credentials'
   assert.match(saved, /4242 4242 4242 4242/, 'test cards are fine');
   assert.match(n.summary, /removed 1 credential and 1 card number|removed 1 card number and 1 credential/);
 
-  await folio.createTicket({ title: 'Refund', description: 'SSN on file 219-09-9999 for the donor' }, { actor });
-  assert.doesNotMatch((await fs.read('tickets/TK-001/description.md')).text, /219-09-9999/);
-  await folio.comment('TK-001', 'Token: ghp_abcdefghijklmnopqrstuvwxyz0123456789', { actor });
-  const events = await folio.ticketEvents('TK-001');
-  assert.doesNotMatch(JSON.stringify(events), /ghp_abcdefghijklmnopqrstuvwxyz0123456789/);
+  const { folio: refund, dir } = await folio.createChild({ title: 'Refund', description: 'SSN on file 219-09-9999 for the donor', summary: 'card 4539 1488 0343 6467' }, { actor });
+  assert.doesNotMatch((await fs.read(`${dir}/README.md`)).text, /219-09-9999/);
+  assert.doesNotMatch(JSON.stringify((await refund.manifest()).manifest), /4539 1488 0343 6467/);
+  await refund.comment('Token: ghp_abcdefghijklmnopqrstuvwxyz0123456789', { actor });
+  assert.doesNotMatch(JSON.stringify(await refund.comms()), /ghp_abcdefghijklmnopqrstuvwxyz0123456789/);
 
   // Client contact details are expected and kept.
   assert.equal(scrubText('Pat Jones, pat@client.example, 415-867-5309').total, 0);
@@ -221,9 +220,8 @@ const MIXED = [
 
 test('an email with a card number and a data attachment is kept as a text copy', async () => {
   const { fs, folio, hold } = await make();
-  await folio.createTicket({ title: 'Donor list' }, { actor });
   assert.equal(emailAttachments(MIXED).length, 2);
-  const results = await folio.add({ name: 'list.eml', data: enc(MIXED) }, { actor, ticket: 'TK-001' });
+  const results = await folio.add({ name: 'list.eml', data: enc(MIXED) }, { actor });
   const [email, data] = results;
   assert.equal(email.kind, 'email');
   assert.equal(data.kind, 'data');
@@ -237,9 +235,6 @@ test('an email with a card number and a data attachment is kept as a text copy',
   assert.match(copy, /donors\.csv: sources\/data\//);
   assert.match(copy, /screen\.png: attachments\//);
   assert.equal(hold.items.size, 2, 'the original email and the CSV');
-  const { ticket } = await folio.getTicket('TK-001');
-  assert.ok(ticket.links.some((l) => l.path === email.path));
-  assert.ok(ticket.links.some((l) => l.path === data.path));
   const emails = await folio.emails();
   assert.match(emails[0].text, /paid with \*\*\*\* \*\*\*\* \*\*\*\* 6467/);
 });

@@ -76,3 +76,34 @@ export class MemoryFs {
     this.files.delete(normalizePath(path));
   }
 }
+
+/**
+ * A FolioFs for one subfolder of another: a folio inside a folio is opened through one of these, so it sees only
+ * its own files with paths relative to itself.
+ */
+export class SubFs {
+  constructor(inner, dir) {
+    this.inner = inner;
+    this.dir = normalizePath(dir);
+    const p = (path) => `${this.dir}/${normalizePath(path)}`;
+    this.path = p;
+    if (typeof inner.readBytes === 'function') this.readBytes = (path) => inner.readBytes(p(path));
+    if (typeof inner.listInfo === 'function') this.listInfo = async (prefix = '') => (await inner.listInfo(prefix ? `${this.dir}/${normalizePrefix(prefix)}` : `${this.dir}/`)).map((e) => ({ ...e, path: e.path.slice(this.dir.length + 1) }));
+  }
+  read(path) {
+    return this.inner.read(this.path(path));
+  }
+  write(path, data, opts) {
+    return this.inner.write(this.path(path), data, opts);
+  }
+  exists(path) {
+    return this.inner.exists(this.path(path));
+  }
+  async list(prefix = '') {
+    const pre = `${this.dir}/${normalizePrefix(prefix)}`;
+    return (await this.inner.list(pre)).map((p) => p.slice(this.dir.length + 1));
+  }
+  remove(path) {
+    return this.inner.remove(this.path(path));
+  }
+}

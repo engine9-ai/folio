@@ -5,11 +5,13 @@
 >
 > **Changes on 7 November 2026:** a content policy (3.7) with [GUIDE.md](GUIDE.md) as its user guide: no credentials, card, bank or Social Security numbers; client contacts are fine, other people's personal data is anonymised; code is referenced, not copied. Data files and logs are summarised, with personal data masked by `@engine9/pii-classifier`, and the originals held in temporary storage (8.4.1). Repository entries may record `references` to releases, pull requests, issues and commits (3.2.1).
 >
-> **Changes on 6 November 2026:** tickets carry **tags** (5.1; the older `labels` field still reads); adding anything to a folio goes through one routing rule owned by the library (8.6), used by drag and drop, uploads, the CLI and email forwarding; email forwarding to a folio's address is in version 1 (8.1); permissions live only in the hosting service (11.1).
+> **Changes in 1.0 (9 November 2026):** **tickets are gone; work is folios inside folios** (5). Type, priority, tags, owner, blockers and readiness are fields of every folio (5.1, 5.2); every change to `folio.json` is recorded (5.4); existing tickets are converted by `upgradeLayout` (5.6); imports create folios (4.4.1).
+>
+> **Changes on 6 November 2026:** adding anything to a folio goes through one routing rule owned by the library (8.6), used by drag and drop, uploads, the CLI and email forwarding; email forwarding to a folio's address is in version 1 (8.1); permissions live only in the hosting service (11.1).
 >
 > **Changes from the draft:** git repository listing is a core part of the folio model (3.2.1); Slack capture is out of version 1; the preview-isolation requirement is kept but its implementation is a tracked TODO; hosting is a single production environment at `folio.engine9.ai`.
 
-**Purpose:** A shared, human-operated workspace for bounded pieces of work, customer communication, tickets, feedback, evidence, and deliverables. Folios are understandable and usable by people and by external AI agents.
+**Purpose:** A shared, human-operated workspace for bounded pieces of work, customer communication, feedback, evidence, and deliverables. Folios are understandable and usable by people and by external AI agents.
 
 **Foundational definition:** **A folio is a folder.** Its files are the complete, portable record of the work. The Folio application organises, protects, presents, and updates those files; it does not define their existence.
 
@@ -19,7 +21,7 @@
 
 Teams supporting multiple accounts need somewhere to hold the complete context for a piece of work. That work may be a brief support request finished in an afternoon, a website review lasting two weeks, or an ongoing engagement spanning several months. The same workspace should accommodate all three without requiring the account to adopt a heavyweight project-management system.
 
-A folio brings together a description of the work, customer-facing tickets, relevant correspondence, decisions, files, feedback, deliverables, previews, and references to external tools. People should be able to understand what is happening at a glance, and an authorised agent should be able to examine and update precisely the same record.
+A folio brings together a description of the work, the work inside it (as folios), relevant correspondence, decisions, files, feedback, deliverables, previews, and references to external tools. People should be able to understand what is happening at a glance, and an authorised agent should be able to examine and update precisely the same record.
 
 A folio is not a chat transcript, a database row, an AI-agent session, or a GitHub repository. Those things may interact with a folio, but none should be necessary to understand it.
 
@@ -27,16 +29,16 @@ A folio is not a chat transcript, a database row, an AI-agent session, or a GitH
 
 1. **Portable by design.** Copy a folio folder and its meaningful history comes with it. Its ordinary files can be opened and edited without the Folio service.
 2. **Human-led.** Humans own objectives, decisions, priority, approvals, and customer relationships. AI tools assist through well-defined access rather than operating an independent project system.
-3. **Tickets first.** Tickets are the primary customer-facing units of work. Fine-grained execution steps may be numerous but need not become tickets.
+3. **Outcomes first.** Folios, and folios inside them, are the customer-facing units of work. Fine-grained execution steps may be numerous but need not become folios.
 4. **Evidence before inference.** Important claims, feedback, decisions, and status changes can be traced to their original source.
 5. **Integration without lock-in.** A folio may connect to many GitHub repositories and MCP services; unavailable integrations do not make its stored content unreadable.
 6. **One record, many interfaces.** The browser, file tools, and MCP clients see the same folio content and follow the same access rules.
-7. **Appropriate scale.** The system should be as comfortable with one ticket and three files as with hundreds of tickets and months of correspondence.
+7. **Appropriate scale.** The system should be as comfortable with one folio and three files as with hundreds of folios inside it and months of correspondence.
 
 ### 1.2 Intended users
 
 - **Account managers and support staff** collect requests, communicate status, gather feedback, and coordinate work.
-- **Engineers and designers** investigate tickets, work across repositories, publish artifacts, and request review.
+- **Engineers and designers** investigate issues, work across repositories, publish artifacts, and request review.
 - **Account stakeholders and invited reviewers** inspect selected work, preview deliverables, and submit feedback.
 - **External AI agents** use permitted MCP capabilities to read context, organise evidence, propose changes, or update approved folio files.
 - **Platform administrators** manage membership, access, integrations, and operational policy without owning the folio's substantive content.
@@ -55,9 +57,9 @@ The application uses clear, stable terminology.
 |---|---|
 | **Account** | An organisation or working group whose members may access one or more folios. |
 | **Folio** | One self-contained folder representing a bounded body of work. |
-| **Ticket** | An issue, request, desired outcome, or customer-facing commitment within a folio. |
-| **Ticket relationship** | A connection between tickets, such as parent, blocks, related, or discovered from. |
-| **Execution record** | Optional fine-grained steps, actions, or agent runs undertaken to advance a ticket; not a ticket itself. |
+| **Folio type** | Why a folio exists: a project, a ticket, a bug, a support request, a review... A ticket is simply a folio of type `ticket`. |
+| **Relationship** | A connection between folios, such as blocked by, related, or discovered from. |
+| **Execution record** | Optional fine-grained steps, actions, or agent runs undertaken to advance a folio; not a folio itself. |
 | **Source** | Original evidence, such as an email, a Slack discussion, a submitted form, a captured GitHub item, or a document. |
 | **Feedback form** | A defined set of questions used to solicit responses about a folio or a particular artifact. |
 | **Feedback response** | A preserved answer to a published form. |
@@ -68,9 +70,9 @@ The application uses clear, stable terminology.
 
 The normal hierarchy is:
 
-**Accounts → Folios → Tickets / Feedback / Artifacts / Files / Decisions / Sources**
+**Folders → Folios → Folios inside them / Communications / Feedback / Artifacts / Files / Decisions / Sources**
 
-Tickets may have parent-child relationships, but they are still tickets within a folio. A folio need not contain tickets if it is being used to collect materials or share a deliverable.
+Work is broken down by putting folios inside folios (5). A folio need not contain any if it is being used to collect materials or share a deliverable.
 
 ### 2.1 Folio identity
 
@@ -80,13 +82,13 @@ A folio sits in a host's folder tree (inside a top-level folder, 3.1.1) *for pur
 
 ### 2.2 Human-readable language
 
-Prefer labels such as **Open Folio**, **New Ticket**, **Waiting on Feedback**, **Preview**, **Decision**, **Related Files**, and **Ready to Work**. Avoid developer-only language in the ordinary customer experience. In particular, "ticket" is not interchangeable with an internal action, command, or agent execution step.
+Prefer labels such as **Open Folio**, **New Folio**, **Waiting on Feedback**, **Preview**, **Decision**, **Related Files**, and **Ready to Work**. Avoid developer-only language in the ordinary customer experience. In particular, a folio of work is not interchangeable with an internal action, command, or agent execution step.
 
 ---
 
 ## 3. The folio as a portable folder
 
-The folio folder is the authority for everything describing the work: identity, title, summary, tickets, status, decisions, feedback, correspondence, and artifacts. A service may cache or display these facts, but it cannot replace the files as the source of truth.
+The folio folder is the authority for everything describing the work: identity, title, summary, status, the work inside it, decisions, feedback, correspondence, and artifacts. A service may cache or display these facts, but it cannot replace the files as the source of truth.
 
 ### 3.1 Illustrative directory structure
 
@@ -106,14 +108,11 @@ folios/
 
     attachments/                 files people add: screenshots, documents, an email's attachments
 
-    tickets/
-      TK-001/
-        ticket.json
-        description.md
-        events/                  the ticket's changes (state history); comments are in comms/
-        attachments/
-      TK-002/
-        ticket.json
+    fix-mobile-redirect/         a folio inside the folio: one piece of the work (5)
+      folio.json                 type, status, priority, owner, blockers...
+      README.md
+      comms/
+      attachments/
 
     decisions/
       DEC-001.json
@@ -144,7 +143,9 @@ folios/
     integrations/
       references.json
     history/
+      changes/                   every change to folio.json (5.4)
       intake/
+      imports/
     indexes/
 ```
 
@@ -154,22 +155,22 @@ The directory layout is a convention rather than a rigid empty scaffold. Only `f
 
 ### 3.1.2 Communications and assets
 
-**All back-and-forth about the work lives in one folder, `comms/`**, whatever form it took: emails, comments (on the folio or on a ticket), status updates, agents' reports, captured chats, and summaries. **The extension says what a message is**, and the name starts with its date and time, so the folder lists in order and a conversation reads top to bottom:
+**All back-and-forth about the work lives in one folder, `comms/`**, whatever form it took: emails, comments, status updates, agents' reports, captured chats, and summaries. **The extension says what a message is**, and the name starts with its date and time, so the folder lists in order and a conversation reads top to bottom:
 
 | File | Kind |
 |---|---|
 | `*.eml` (and `*.msg`) | An email, as received (or a text copy, 3.7) |
-| `*.comment.json` | A comment, on the folio or (with `ticket`) on a ticket |
+| `*.comment.json` | A comment |
 | `*.update.json` | A status update |
 | `*.agent.json` | What an agent did or found, in its own words |
 | `*.chat.json` | A captured chat thread (Slack and the like) |
 | `*.summary.md` | A summary that stands in for the messages before its date |
 
-A message file is JSON: `{ "at", "kind", "author": { "type", "id", "on_behalf_of"? }, "via", "text", "ticket"?, "attachments"?: [paths], "imported"? }`. Messages are written once and never edited, so they need no locking and never conflict with ticket edits.
+A message file is JSON: `{ "at", "kind", "author": { "type", "id", "on_behalf_of"? }, "via", "text", "attachments"?: [paths], "imported"? }`. Messages are written once and never edited, so they need no locking and never conflict with edits to `folio.json`.
 
-**Files are assets and live apart**, in `attachments/` (and a ticket's own `attachments/`); a message refers to them by path. Keeping the conversation in one folder of small files makes it easy to read, search, summarise and compress (older messages can be replaced by a `*.summary.md`), without visiting a folder per kind of message.
+**Files are assets and live apart**, in `attachments/`; a message refers to them by path. Keeping the conversation in one folder of small files makes it easy to read, search, summarise and compress (older messages can be replaced by a `*.summary.md`), without visiting a folder per kind of message.
 
-Folios written before `comms/` existed kept emails in `sources/email/`, uploads in `sources/uploads/`, and comments as ticket events. Readers still understand them, and `folio.upgradeLayout()` moves them into this layout.
+Folios written before `comms/` existed kept emails in `sources/email/`, uploads in `sources/uploads/`, and tickets in `tickets/`. Readers still understand the first two, and `folio.upgradeLayout()` moves everything into this layout (5.6).
 
 ### 3.1.1 Folders all the way down
 
@@ -181,7 +182,7 @@ acme/                          a top-level folder: one organisation or team (wha
   clients/                     a folder grouping work
     customer-portal/           a folio
       folio.json
-      tickets/ ...
+      comms/ ...
       phase-2/                 a folio inside a folio
         folio.json
   internal-tools/              a folio directly in the top-level folder
@@ -200,9 +201,9 @@ The rules (3.8 has the detail):
 
 - Stable folio ID and a title.
 - Concise summary, purpose, and desired outcome.
-- Lifecycle status.
+- Lifecycle status, type, priority, owner, target date, tags, and relationships to other folios (5.1).
 - Creation and last meaningful update timestamps.
-- Optional folio-level tags, categories, and key dates (for finding folios; tickets carry their own tags, 5.1).
+- Optional key dates.
 - Optional non-secret repository references, connection aliases, and related external URLs.
 - Optional pointers to noteworthy files or current artifacts.
 - A declared folio data-format revision for readers that understand structured fields.
@@ -217,6 +218,8 @@ Illustrative manifest:
   "title": "Customer portal sign-in improvements",
   "summary": "Investigate authentication reports and review the updated sign-in experience.",
   "status": "active",
+  "type": "project",
+  "priority": "high",
   "created_at": "2026-11-02T10:00:00Z",
   "updated_at": "2026-11-02T10:00:00Z",
   "tags": ["support", "website"],
@@ -261,7 +264,7 @@ Rules:
 1. Listing is by reference only. Source code is not copied into the folio (see 8.3).
 2. A folio may list any number of repositories, with different roles.
 3. Duplicates (same provider and repository, ignoring case) are flagged.
-4. Tickets and decisions may cite a specific branch, file, commit, pull request, release or issue within a listed repository; the cited repository should be listed.
+4. Folios and decisions may cite a specific branch, file, commit, pull request, release or issue within a listed repository; the cited repository should be listed.
 5. Live state ("connected", "requires authorisation") is computed by a hosting service and is never written into the folio. In the portable library every entry reads as `reference_only`.
 6. Material GitHub discussions or issues are captured under `sources/github/` with their live reference, as in 8.3.
 
@@ -297,7 +300,7 @@ If a decision depends on an email, that original email or a faithful retained co
 What a folio holds is shared with everyone who can read it, copied when it is exported, and read by agents. So some things never belong in one. [GUIDE.md](GUIDE.md) explains this for the people and agents using folios; the library enforces it when items are added (8.6) and `validate` reports what got in another way.
 
 1. **No credentials.** Passwords, tokens, API keys, private keys and connection strings with passwords are never stored. A folio says where a credential lives (a password-manager vault and item), never what it is. Key and credential files are refused at intake; credentials in text are replaced with a pointer to the password manager. (This strengthens 3.4(6).)
-2. **No payment, bank or Social Security numbers.** Card numbers, bank account numbers (IBAN) and US Social Security numbers are replaced with a masked form wherever they are added: notes, comments, ticket titles and descriptions, text files. An email carrying one is kept as a text copy without it, and its original is held temporarily (8.4.1). Known test values are not personal data and are kept.
+2. **No payment, bank or Social Security numbers.** Card numbers, bank account numbers (IBAN) and US Social Security numbers are replaced with a masked form wherever they are added: notes, comments, folio titles, summaries and READMEs, text files. An email carrying one is kept as a text copy without it, and its original is held temporarily (8.4.1). Known test values are not personal data and are kept.
 3. **Client contacts are expected; everyone else is anonymised.** The account's own people (who send the emails, attend the meetings) are part of the record. Members, customers, donors and others the client serves are referred to by the client's identifiers. Sample rows and aggregates are fine; full result sets and exports are summarised (8.4.1).
 4. **Images are kept as they are.** A screenshot may show personal data; that is accepted.
 5. **Code is referenced, not copied.** Repositories are listed (3.2.1), with the releases, pull requests, issues and commits that matter. Samples, snippets in notes and comments, and deliverable artifacts are fine; codebases are not (`.git` and `node_modules` folders are skipped at intake, and `validate` warns about many source files outside `notes/`, `samples/` and `artifacts/`).
@@ -312,7 +315,7 @@ A folio inside a folio is a separate record, as if it sat anywhere else:
 
 - The folio around it does **not** list, search, validate or write the nested folio's files. Its own tools (and the library's `Folio`, given the nested folders or `nested: 'detect'`) see only its own record; the nested folio appears to it as a folder to open.
 - A nested folio can be shared, restricted, moved or exported on its own. Exporting the outer folio includes nested folios only if asked.
-- Folio's own directories (`tickets/`, `sources/`, `notes/`, `history/`, `indexes/`, `feedback/`, `artifacts/`, `decisions/`, `integrations/`, `samples/`) never hold nested folios. A `folio.json` filed under them (inside an uploaded folder, say) is just a file.
+- Folio's own directories (`comms/`, `attachments/`, `sources/`, `notes/`, `history/`, `indexes/`, `feedback/`, `artifacts/`, `decisions/`, `integrations/`, `samples/`) never hold nested folios. A `folio.json` filed under them (inside an uploaded folder, say) is just a file.
 - Making a folder inside a folio into a folio moves its files out of the outer folio's view, not out of the folder tree.
 
 ## 4. Folio lifecycle and organisation
@@ -325,7 +328,7 @@ A folio can also be introduced by importing an existing folder, including one co
 
 ### 4.2 Discover and navigate
 
-People working with many organisations need to find folios by folder, title, status, owner, tags, recent activity, relevant ticket, and available context. Lists and search results are *views of folio content*, not independent records that must be maintained manually.
+People working with many organisations need to find folios by folder, title, status, owner, tags, recent activity, type, priority, readiness, and available context. Lists and search results are *views of folio content*, not independent records that must be maintained manually.
 
 A folio overview should answer: **What is this? What is outstanding? What changed? What needs my attention? Where is the latest deliverable?**
 
@@ -338,13 +341,13 @@ A folio's **status** is, after its title, the most important thing about it. It 
 | `draft` | Draft (shown only when used) | Being assembled; not yet real work. |
 | `backlog` | Backlog | Recorded, not scheduled. |
 | `planned` | Up Next | Scheduled to start soon. |
-| `active` | In Progress | Work is proceeding. The default for a new folio. |
+| `active` | In Progress | Work is proceeding. The default for a new top-level folio; a folio created inside another starts in `backlog`. |
 | `waiting` | Waiting | Progress depends on an external response or decision. |
 | `review` | In Review | Delivered for review or approval. |
 | `completed` | Done | The agreed outcome is delivered; records remain accessible. |
 | `archived` | Archived (hidden unless asked) | Retained for history and reference, with conspicuous read-only defaults. |
 
-A folio may use a status of its own (a lowercase word such as `blocked-on-legal`); validation warns, and boards show it as an extra column. A folio can be reopened. Closing or archiving a folio must not discard ticket histories, feedback, or artifacts. Moving it between top-level folders is an intentional administrative action involving a fresh permission assessment. `folio.setStatus(status)` changes it; hosts may keep a disposable index of titles and statuses (12.3) and are told of every change through `onManifest`.
+A folio may use a status of its own (a lowercase word such as `blocked-on-legal`); validation warns, and boards show it as an extra column. A folio can be reopened. Closing or archiving a folio must not discard histories, feedback, or artifacts. Moving it between top-level folders is an intentional administrative action involving a fresh permission assessment. `folio.setStatus(status)` changes it; hosts may keep a disposable index of titles and statuses (12.3) and are told of every change through `onManifest`.
 
 ### 4.4 Duplicate, move, export, and import
 
@@ -354,95 +357,85 @@ Import should flag broken internal references, conflicting folio identities, una
 
 #### 4.4.1 Importing work from other tools
 
-An export from another tool becomes tickets in a folio. It is added like anything else (8.6): dropped as a file, pasted as text, or handed over by an agent. The library recognises the export by its shape:
+An export from another tool becomes **folios inside the folio** it is added to. It is added like anything else (8.6): dropped as a file, pasted as text, or handed over by an agent. The library recognises the export by its shape:
 
 | Format | Recognised by | Becomes |
 |---|---|---|
-| Asana | Asana's project JSON export or API task lists: `{ "data": [task, ...] }`, `{ "data": task }` or `[task, ...]`, where tasks have `gid` and `name` and Asana's task fields | One ticket per task and subtask. Subtasks become child tickets (`parent`), `dependencies` become `blocked_by`, sections and tags become ticket tags, a "Priority" custom field the priority, a "Type" field the type, completed tasks are closed (`resolution: completed`), a section like "In progress" or "Blocked" sets the status, `due_on` the target date, the assignee the owner, `notes` (or `html_notes`) the description with other custom fields and the Asana link below it, and comments in `stories` the ticket's history |
-| Trello | A board export: `{ cards, lists, labels, actions }` | One ticket per card: the list and labels become tags (a priority label sets the priority), a "Done" list or completed due date closes it, an archived card is cancelled, comments become history |
-| Folio tickets | `{ "tickets": [{ title, description, type, status, priority, tags, owner, target_date, parent, blocked_by, comments }] }` | One ticket each; `parent` and `blocked_by` refer to other entries by `id` |
+| Asana | Asana's project JSON export or API task lists: `{ "data": [task, ...] }`, `{ "data": task }` or `[task, ...]`, where tasks have `gid` and `name` and Asana's task fields | One folio (type `ticket`) per task. Subtasks go inside their task's folio, `dependencies` become `blocked_by`, sections and tags become tags, a "Priority" custom field the priority, a "Type" field the type, completed tasks are `completed`, a section like "In progress" or "Waiting" sets the status, `due_on` the target date, the assignee the owner, `notes` (or `html_notes`) the README with other custom fields and the Asana link below it, and comments in `stories` the folio's `comms/` |
+| Trello | A board export: `{ cards, lists, labels, actions }` | One folio per card: the list and labels become tags (a priority label sets the priority), a "Done" list completes it, an archived card is archived, comments go to `comms/` |
+| Folio list | `{ "folios": [{ id, title, description, type, status, priority, tags, owner, target_date, parent, blocked_by, comments }] }` (the older `{ "tickets": [...] }` too) | One folio each; `parent` and `blocked_by` refer to other entries by `id` |
 
-- Each imported ticket records where it came from in `external` (`{ source, id, url }`). **Importing the same export again skips tickets already imported**, so an export can be re-imported after more work was added to it.
-- Relationships that would form a loop are left out. Ticket text is scrubbed like any other (3.7). Up to 500 tickets per import.
-- A record of each import (what was created from what) is kept in `history/imports/`. Nothing else from the export is kept in the folio; to keep the export itself, add it as a file instead (`as: "file"`).
-- Imported on a ticket, the new tickets are marked `discovered_from` that ticket.
+- Each imported folio records where it came from in `external` (`{ source, id, url }`). **Importing the same export again skips what was already imported**, so an export can be re-imported after more work was added to it.
+- Blockers that would form a loop are left out. Text is scrubbed like any other (3.7). Up to 500 items per import.
+- A record of each import (what was created from what) is kept in `history/imports/`. Nothing else from the export is kept; to keep the export itself, add it as a file instead (`as: "file"`).
 
 ---
 
-## 5. Tickets: the principal unit of work
+## 5. Folios inside folios: the unit of work
 
-Tickets represent meaningful requests or outcomes that account stakeholders can understand. They may concern defects, requests, investigations, reviews, decisions, improvements, or support. A ticket is typically larger than the individual actions used to complete it.
+There is no separate ticket object. **A piece of work is a folio**, and a folio's work is broken down into **folios inside it** (3.8). A bug report, a support request, a feature, a review, a whole project: each is a folder with a `folio.json`, its own `comms/`, `attachments/` and history, and its own email address and sharing. What used to be "a ticket" is a folio whose `type` is `ticket` (or `bug`, `support`, ...). A small folio may hold no folios at all; a substantial one holds a few, and those may hold their own.
 
-### 5.1 Ticket content
+### 5.1 What every folio carries
 
-Every ticket should have:
+The fields that matter for tracking work all live in `folio.json`:
 
-- Stable identifier, title, and description.
-- Type, status, priority, and creation/update dates.
-- Current responsible person or team, when known.
-- A clear requested outcome or resolution criterion.
-- Optional target date, **tags**, and participants. Tags are free-form words stored on the ticket (`"tags": ["payments", "safari"]` in `ticket.json`), used to group and filter tickets. Priority is a separate field, not a tag. Older files may use `labels`; readers treat it as `tags`, and the next edit through the library writes `tags`.
-- Links to evidence, decisions, other tickets, and artifact versions.
-- Portable comments and a change history.
+| Field | Meaning |
+|---|---|
+| `id`, `title`, `summary` | Identity and what it is. The folder name follows the title and may change; the id does not. |
+| `type` | Why it exists. Suggested: `project`, `ticket`, `task`, `request`, `support`, `bug`, `feature`, `review`, `investigation`, `epic`. Others are allowed (a lowercase word; validation warns). |
+| `status` | Its column on the board (4.3). |
+| `priority` | `urgent`, `high`, `normal`, `low`. Human-facing urgency, distinct from order or effort. |
+| `tags` | Free-form words for grouping and filtering. |
+| `owner`, `target_date` | Who is responsible (an email or a name) and when it is due (`YYYY-MM-DD`). |
+| `outcome`, `resolution` | What a good result looks like; why it ended (`completed`, `duplicate`, `declined`, `cannot_reproduce`, `superseded`, `cancelled`, or custom). |
+| `waiting_on`, `hold` | What it waits for (an outside response); an explicit manual hold. Kept apart from dependencies so the reasons stay distinguishable. |
+| `relationships` | `[{ type, target }]` to other folios, by folio id (5.2). |
+| `links` | Evidence elsewhere: `{ type, label, url \| path }`. |
+| `external`, `aliases` | Where an imported folio came from (`{ source, id, url }`), and older identifiers it answered to (such as `TK-001`). |
 
-A ticket's authoritative current information belongs in a file such as `tickets/TK-001/ticket.json`. Longer explanatory material may live in `description.md`; attachments and history belong beside the ticket. The folder structure is not dictated by how the ticket happens to appear in a UI.
+Longer explanation goes in the folio's `README.md`. Priority and status are not inferred from a message's tone; people set them, and every change is attributable (5.4).
 
-### 5.2 Suggested ticket types and states
+### 5.2 Relationships and readiness
 
-| Property | Recommended vocabulary | Meaning |
-|---|---|---|
-| Type | `support`, `bug`, `request`, `feature`, `review`, `investigation`, `epic` | Why the ticket exists. |
-| Status | `open`, `in_progress`, `blocked`, `resolved`, `closed`, `cancelled` | The ticket's current lifecycle state. |
-| Priority | `urgent`, `high`, `normal`, `low` | Human-facing urgency, distinct from sequence or effort. |
-| Resolution | `completed`, `duplicate`, `declined`, `cannot_reproduce`, `superseded`, or custom | Why a closed ticket ended. |
-
-Priority and status should not be inferred purely from a message's emotional tone. A human may revise them, and changes should be attributable. A ticket may be `blocked` because of a declared dependency or an explicit manual hold; the two reasons should remain distinguishable.
-
-### 5.3 Ticket hierarchy and relationships
-
-Folio adopts the useful concepts of dependency-aware ticket systems such as Beads, without requiring their internal storage or multi-agent orchestration model.
-
-Supported relationships:
+Folio adopts the useful concepts of dependency-aware trackers such as Beads, without their storage or orchestration model. Containment is the hierarchy: a folio inside another is part of it. Other relationships point at folio ids, so they survive renames and moves:
 
 | Relationship | Example | Behaviour |
 |---|---|---|
-| **Parent / child** | “Improve sign-in” contains “Fix mobile redirect” | Organises related outcomes; parent completion is governed by an explicit policy. |
-| **Blocks / blocked by** | “Confirm identity behaviour” blocks “Ship updated flow” | A blocking unresolved ticket prevents the dependent ticket being marked ready. |
-| **Related** | Two different symptoms share a likely cause | Navigation and context only. |
-| **Discovered from** | A mobile defect was found while investigating desktop login | Preserves provenance; does not imply dependency. |
-| **Duplicate of / supersedes** | Two customer reports describe the same issue | Preserves both records and their history while identifying the canonical work. |
+| `blocked_by` | "Ship updated flow" is blocked by "Confirm identity behaviour" | An unfinished blocker keeps the folio from being ready. Loops are refused. |
+| `related` | Two symptoms share a likely cause | Navigation and context only. |
+| `discovered_from` | A mobile defect found while investigating desktop login | Provenance; not a dependency. An import into a folio marks what it created this way. |
+| `duplicate_of`, `supersedes` | Two reports describe the same issue | Both records are kept; one is canonical. |
 
-Relationships must be visible in both directions, understandable without the interface, and protected against invalid self-references or cycles where those would make the meaning incoherent. Hierarchy does not automatically imply a blocking relationship.
+**Readiness** is calculated from the files, never stored:
 
-A small folio may have one flat ticket. A more substantial folio can have an epic with child tickets and cross-cutting blockers. The product must not demand hierarchy where none is useful.
+| State | When |
+|---|---|
+| `done` | Status `completed` or `archived`. |
+| `blocked` | Any `blocked_by` folio is not done, or `hold` is set. |
+| `draft` | Status `draft`. |
+| `waiting` | `waiting_on` is set, or status `waiting` or `review`. |
+| `ready` | Status `backlog` or `planned`, with nothing blocking it: someone could usefully start it now. |
+| `in_progress` | Any other status (normally `active`). |
 
-### 5.4 Ready-to-work view
+The **Ready** view lists the folios inside a folio that are ready, each with its reason.
 
-The **Ready** view answers: *Which open tickets could someone usefully start now?*
+### 5.3 Execution details stay out of the list
 
-A ticket is ready when it is open, is not explicitly deferred or held, and has no unresolved blocking dependencies. The view should distinguish ready, already in progress, awaiting input, and blocked. Readiness is calculated from the ticket files and relationships, not an additional authoritative status table.
+An individual folio might take hundreds of low-level actions: reading logs, editing files, running checks, asking agents to investigate. Those are not folios. They go in the folio's `comms/` as agent reports and updates (`*.agent.json`, `*.update.json`), in `notes/`, or in referenced external logs, so the board stays a list of meaningful outcomes.
 
-Ticket lists should offer useful views such as All, Mine, Ready, Blocked, Waiting for Review, Recently Updated, and Closed. Filters might include account, owner, type, priority, label, or related source.
+### 5.4 Change history
 
-### 5.5 Execution details are subordinate to tickets
+Every change to `folio.json` made through the library is recorded in `history/changes/` as one JSON file: `{ at, actor, via, type, changes: { field: { from, to } } }` (`type` is `created`, `updated`, `status`, `related`, ...). Messages need no such record: they are in `comms/` and never edited. Histories are content and travel with the folder.
 
-An individual ticket might require hundreds of low-level actions: examining logs, inspecting database records, editing files, running checks, generating assets, or asking agents to investigate alternatives. Those actions should not flood the customer-facing ticket list.
+Direct editing of the files is legitimate. A host should flag changes it cannot attest (a `folio.json` edited outside the library has no matching change record) rather than claim its history covers edits made outside its control.
 
-The folio may retain optional **execution records**, checklists, agent-run summaries, or activity traces under a ticket. These records may include actor, time, purpose, result, files changed, and references to external logs. They are useful for accountability and continuity, but they are not first-class tickets and do not require a separate task-management model.
+### 5.5 Interactions
 
-A human should be able to see a concise ticket timeline while expanding technical execution history only when relevant.
+A folio can be created from an email, a feedback response, a document, an artifact annotation, or a discovery made in another folio (`discovered_from`). People update it, comment on it, assign it, attach evidence, add blockers and mark it done. Closing invites a short update: what changed, how it was verified, what remains open. Reopening is a status change; the record is kept.
 
-### 5.6 Ticket interactions
+### 5.6 Folios written with tickets
 
-A user should be able to create a ticket from an email, feedback response, source document, artifact annotation, or a discovery made during another ticket. Users may update it, comment, assign responsibility, connect supporting sources, add dependencies, and mark a resolution.
-
-Closing a ticket should invite a useful resolution note: **what changed, what was delivered, how it was verified, and what remains open**. Reopening preserves the original record rather than creating a disconnected replacement.
-
-### 5.7 Ticket history
-
-The folio should retain an understandable history of significant changes: creation, status transitions, ownership changes, comments, links, decisions, and resolution. Histories are substantive content and therefore belong inside the folder. An event may identify a person, an authorised agent, or an external origin.
-
-Direct editing of portable files is legitimate. The application should flag unrecognised changes when it cannot attest how they occurred, rather than claiming that its audit history covers edits made outside its control. This distinction must be explicit wherever histories are presented as evidence.
+Folios written before 1.0 kept tickets in `tickets/TK-NNN/`. `folio.upgradeLayout()` converts each into a folio inside the folio (a ticket with a parent goes inside its parent's folio), keeping its fields, description (as `README.md`), comments (in its `comms/`), linked emails and files, attachments and event history, and its old id in `aliases`. Old statuses map as `open` → `backlog`, `in_progress` → `active`, `blocked` → `waiting`, `resolved` → `review`, `closed` → `completed`, `cancelled` → `archived`. `tickets/` is then removed. Validation warns about a folio that still has one.
 
 ---
 
@@ -452,7 +445,7 @@ Feedback is both an incoming communication channel and a record of review. It sh
 
 ### 6.1 Form creation
 
-Authorised people may create a form attached to a folio. A form may optionally target a particular ticket, artifact, or immutable preview version.
+Authorised people may create a form attached to a folio. A form may optionally target a particular folio, artifact, or immutable preview version.
 
 The form experience should support a title, description, instructions, optional deadline, confirmation message, and common field types: short text, long text, single choice, multiple choice, rating, yes/no, date, and attachments. Fields may be required or optional. Order and explanatory text should be editable before publication.
 
@@ -466,7 +459,7 @@ The form definition and responses belong in the folio's `feedback/` folder. Shar
 
 ### 6.3 Respondent experience
 
-A reviewer with appropriate access should receive a simple form with context, clear questions, and an optional link to the artifact or ticket under discussion. Reviewers should not need general access to the entire folio simply to submit feedback.
+A reviewer with appropriate access should receive a simple form with context, clear questions, and an optional link to the artifact or folio under discussion. Reviewers should not need general access to the entire folio simply to submit feedback.
 
 The product should allow authenticated participants and time-limited invitation links. Anonymous public collection is not the default. Each submission should preserve when it was received, which form revision was answered, and any identity information the reviewer voluntarily or authoritatively provided. Avoid requesting personal data unnecessarily.
 
@@ -475,13 +468,13 @@ The product should allow authenticated participants and time-limited invitation 
 Submitted feedback enters a review queue where an authorised person can:
 
 - Acknowledge and categorise the response.
-- Link it to an existing ticket.
-- Create a ticket from the response.
+- Link it to an existing folio.
+- Create a folio from the response.
 - Mark it informational, duplicate, accepted, deferred, or declined.
 - Attach a note explaining the disposition.
 - Associate it with a particular artifact version or page/element when relevant.
 
-A response is evidence, not an instruction to modify the product automatically. Triage may create separate annotations or tickets; the original response remains unchanged.
+A response is evidence, not an instruction to modify the product automatically. Triage may create separate annotations or folios; the original response remains unchanged.
 
 ### 6.5 Feedback on a preview
 
@@ -497,13 +490,13 @@ Examples include a PDF, an image collection, a research memo, a CSV export, an H
 
 ### 7.1 Artifact collection
 
-Each artifact should have a stable identity, a name, purpose, type, owner or publisher when known, creation date, optional description, and links to relevant tickets and decisions. Its files and non-secret descriptive information belong inside `artifacts/`.
+Each artifact should have a stable identity, a name, purpose, type, owner or publisher when known, creation date, optional description, and links to relevant folios and decisions. Its files and non-secret descriptive information belong inside `artifacts/`.
 
-Artifacts should be discoverable by name, type, last update, associated ticket, and whether review is requested. Account stakeholders may see a curated artifact view rather than the complete filesystem.
+Artifacts should be discoverable by name, type, last update, associated folio, and whether review is requested. Account stakeholders may see a curated artifact view rather than the complete filesystem.
 
 ### 7.2 Immutable review versions
 
-When an artifact is published for review, that published state should be preserved. Reviewers and tickets can then cite an exact version. New uploads may produce subsequent versions without rewriting what someone previously approved or commented on.
+When an artifact is published for review, that published state should be preserved. Reviewers and folios can then cite an exact version. New uploads may produce subsequent versions without rewriting what someone previously approved or commented on.
 
 An artifact can carry a review state such as `draft`, `ready_for_review`, `changes_requested`, `approved`, or `superseded`. The approval is meaningful only with respect to a particular artifact version and its intended reviewers.
 
@@ -518,13 +511,13 @@ Folio does not need to execute arbitrary server-side applications. External dyna
 
 ### 7.4 Sharing and safety
 
-A preview may be made available to selected account members or reviewers via explicit, limited access. A preview grant should cover only the intended artifact and version; it should be revocable and should not confer access to source emails, tickets, or unrelated folio files.
+A preview may be made available to selected account members or reviewers via explicit, limited access. A preview grant should cover only the intended artifact and version; it should be revocable and should not confer access to source emails, other folios, or unrelated folio files.
 
 Active website previews can contain untrusted scripts. They must be isolated from authenticated Folio pages and their sessions. **TODO (before previews of untrusted or customer-supplied HTML are enabled):** serve previews from a separate registrable domain, not a subdomain of `engine9.ai`, so that cookies, storage and same-site requests cannot reach the authenticated application. Until that origin exists, static website preview is not offered and file previews are served only as downloads or sandboxed, script-free renderings. A static artifact may have external network dependencies; the product should disclose that such a preview is not entirely self-contained.
 
-### 7.5 Review-to-ticket journey
+### 7.5 Review-to-work journey
 
-From a preview, a reviewer should be able to open the associated feedback form or provide contextual commentary. Once triaged, that feedback can become a ticket whose evidence links directly to the preserved version reviewed. The person addressing the ticket can locate the original comment, the build in question, and any subsequent replacement build.
+From a preview, a reviewer should be able to open the associated feedback form or provide contextual commentary. Once triaged, that feedback can become a folio whose evidence links directly to the preserved version reviewed. The person addressing it can locate the original comment, the build in question, and any subsequent replacement build.
 
 ---
 
@@ -534,7 +527,7 @@ Sources provide the original context for work. The product should preserve origi
 
 ### 8.1 Email
 
-> **In version 1:** an email reaches a folio in three ways, all filed by the same rule (8.6): **forwarding** it to the folio's intake address (`<folio-id>@<intake domain>`, or `<folio-id>+TK-001@…` to attach it to a ticket), **dragging** it from a desktop mail client (Apple Mail, Outlook, Thunderbird give the browser an `.eml` or `.msg` file), or adding an `.eml` file by hand. The hosting service accepts a forwarded email only from a sender who may write to that folio. Not yet: thread matching for replies, and splitting a forwarded wrapper from the original it carries.
+> **In version 1:** an email reaches a folio in three ways, all filed by the same rule (8.6): **forwarding** it to the folio's intake address (`<folio-id>@<intake domain>`; every folio, including one inside another, has its own; a converted ticket's old `+TK-001` address still reaches the folio that took its place), **dragging** it from a desktop mail client (Apple Mail, Outlook, Thunderbird give the browser an `.eml` or `.msg` file), or adding an `.eml` file by hand. The hosting service accepts a forwarded email only from a sender who may write to that folio. Not yet: thread matching for replies, and splitting a forwarded wrapper from the original it carries.
 >
 > Each email is stored once, as received, at `comms/<date>-<subject>-<hash>.eml`, with every other message (3.1.2) (unless it carries content 3.7 forbids or data-file attachments: then the folio keeps a text copy with its original headers, its readable text scrubbed, an `X-Folio-Copy` header and a list of where each attachment went; data attachments are summarised as in 8.4.1, other attachments go to `attachments/<email>/`, and the original is held temporarily) (Outlook `.msg` files keep their own format). The date is the email's own `Date`, the hash comes from its `Message-ID` (or its bytes), so a second delivery of the same message is recognised and not stored again. The header summary (from, to, subject, date, message id) is read from the file whenever it is needed, and recorded with the intake provenance in `history/intake/`.
 
@@ -542,7 +535,7 @@ Each folio may receive relevant support emails through an assigned intake addres
 
 Replies and follow-ups should be associated with their existing thread when possible. If an incoming message cannot confidently be assigned to a folio, a human should route it rather than silently filing it under a guessed account. Duplicate delivery should not produce duplicate evidence.
 
-The application may show an email in a readable form and identify candidate tickets, but any summary, classification, or proposed ticket remains distinct from the original message. Folio is an evidence and coordination record, not necessarily an outbound email client.
+The application may show an email in a readable form and suggest folios to create, but any summary, classification, or proposed folio remains distinct from the original message. Folio is an evidence and coordination record, not necessarily an outbound email client.
 
 ### 8.2 Slack
 
@@ -554,7 +547,7 @@ A single folio may be associated with a dedicated channel, several threads, or n
 
 ### 8.3 GitHub
 
-A folio may reference one or many GitHub repositories, listed as described in 3.2.1. References may point to branches, files, commits, pull requests, releases, or issues. The service should make these links easy to inspect and attach to tickets and decisions.
+A folio may reference one or many GitHub repositories, listed as described in 3.2.1. References may point to branches, files, commits, pull requests, releases, or issues. The service should make these links easy to inspect and attach to folios and decisions.
 
 Repository source code need not be copied into the folio. However, if a GitHub discussion or issue is material to the permanent record, a captured source item should be retained under `sources/github/` along with its live reference. This makes clear what survives an unavailable or renamed repository.
 
@@ -570,11 +563,11 @@ Exports, query results and logs usually hold other people's personal data and ar
 - **The summary** is written to `sources/data/<date>-<name>-<hash>.json` (`"kind": "folio.data_summary"`): name, content type, size, SHA-256, submitted at, by and via, record or line count, and per field its inferred type, empty count and up to three example values; up to five sample rows; for logs the first and last timestamps, counts per level and redacted sample lines (first lines, first errors, last lines). Fields where `@engine9/pii-classifier` finds personal data are listed in `pii` and their examples masked; identifier fields are kept; free text is redacted span by span. Large files are counted over their bytes and sampled from the first megabyte, and the summary says so.
 - **The original** is handed to the host's temporary storage (`hold`): R2 on the hosted service, a local folder for the CLI. The summary's `stored` says where and until when (`expires_at`). Without temporary storage only the summary is kept, and `stored.where` is `not_kept`. Temporary storage is not part of the folio, and an exported folio does not carry it.
 - **Kept as an ordinary file** instead when it is at most 50 records and 64 KB and no personal data is found: a sample result belongs with the evidence. Its provenance record notes the format and counts.
-- The same bytes added again are recognised by their hash and not summarised twice. On a ticket, the summary is linked from it.
+- The same bytes added again are recognised by their hash and not summarised twice.
 
 ### 8.5 Source-linked reasoning
 
-A ticket, decision, status update, or feedback disposition may cite several sources. The UI should expose those citations with readable labels. Agents should be able to retrieve the underlying evidence to avoid repeating or amplifying an unsupported claim.
+A folio, decision, status update, or feedback disposition may cite several sources. The UI should expose those citations with readable labels. Agents should be able to retrieve the underlying evidence to avoid repeating or amplifying an unsupported claim.
 
 ---
 
@@ -588,26 +581,26 @@ Whatever adds something to a folio (a drag and drop in the browser, an upload, a
 | Email | `.eml` / `message/rfc822`, Outlook `.msg`, or text that starts with an email header block | `comms/` (3.1.2, 8.1) |
 | Other link | Any other URL (also `.webloc` and `.url` shortcut files) | `sources/links/<date>-<site>-<hash>.json`, holding the URL and who added it |
 | Text | Dropped, pasted or typed text that is not a URL, an email or JSON | `notes/<date>-<title>.md`, `.html` or `.txt`: **Markdown, HTML or plain text by what it looks like** (below). The title is the first heading, an HTML `<title>`/`<h1>`, or the first line |
-| An export from another tool | An Asana or Trello JSON export, or `{ "tickets": [...] }`, dropped as a `.json` file or pasted | Tickets (4.4.1) |
+| An export from another tool | An Asana or Trello JSON export, or `{ "folios": [...] }`, dropped as a `.json` file or pasted | Folios inside this one (4.4.1) |
 | Other JSON | Pasted JSON that is not an export | Filed as a dropped `.json` file would be: a list of records is data, anything else a file |
 | Data file or log | CSV, TSV, JSON records, JSON Lines, logs, spreadsheets, dumps (8.4.1) | A summary in `sources/data/`, the original in temporary storage; small files with no personal data are filed as ordinary files |
 | Refused | Key and credential files (`.env`, `.pem`, `id_rsa`, `.kdbx`, …) | Not stored (3.7) |
-| Comment or update | Text added on a ticket, or text added with `as: "comment"` / `"update"` | A message in `comms/` (3.1.2) |
+| Comment or update | Text added with `as: "comment"` / `"update"` (interfaces offer this first for short text) | A message in `comms/` (3.1.2) |
 | File | Anything else | `attachments/` (8.4), keeping a dropped folder's structure; a name already in use gets a number ("report 2.pdf"). Text files have prohibited content (3.7) removed; images and other binary files keep their bytes |
 
 Where it was dropped refines this:
 
-- **On a ticket:** files go to `tickets/<id>/attachments/`; emails still go to `comms/`; the ticket gets a link to each (`links`, with a `linked` event in its history). A link is recorded on the ticket instead of `sources/links/`. Text becomes a comment.
-- **On a folder:** files go into that folder (a folder inside a ticket means that ticket's attachments). Emails, repositories and links still go to their own places.
+- **On a folio inside a folio:** everything goes to that folio, by the same rule. Its emails are in its `comms/`, its files in its `attachments/`.
+- **On a folder:** files go into that folder. Emails, repositories and links still go to their own places.
 
 **Text formats.** Text is HTML when it is a document (`<!doctype html>`, `<html>`) or mostly markup (starts with a tag and has several); Markdown when it has two or more signs of it (a heading, code fence, table or task list counts double; links, emphasis, lists, quotes, inline code and rules count once; three or more bullets count too); otherwise plain text. Detection is a guess, so:
 
-- **Before saving**, an interface shows what was detected and offers the other types. An item may carry `as` to choose: `markdown`, `html`, `text` (a note of that type, or a text file given that extension), `json`, `import`, `comment` (on a ticket), `file` (keep a dropped file as a file, never import it). `name` names a text note's file. `folio.choices(item, { ticket, folder })` returns the detected kind and type, where it would go, and the other choices.
-- **After saving**, `folio.setTextFormat(path, format)` changes a `.md`, `.html` or `.txt` file to another of those types: the file is renamed, its content kept, and tickets linking to it follow.
+- **Before saving**, an interface shows what was detected and offers the other types. An item may carry `as` to choose: `markdown`, `html`, `text` (a note of that type, or a text file given that extension), `json`, `import`, `comment`, `update`, `file` (keep a dropped file as a file, never import it). `name` names a text note's file. `folio.choices(item, { folder })` returns the detected kind and type, where it would go, and the other choices.
+- **After saving**, `folio.setTextFormat(path, format)` changes a `.md`, `.html` or `.txt` file to another of those types: the file is renamed, its content kept, and `links` in `folio.json` that point at it follow.
 
-Text added on a ticket becomes a comment unless a file type is chosen, in which case it is saved as an attachment. Text added in a folder becomes a file in that folder.
+Text added in a folder becomes a file in that folder.
 
-Inside a dropped folder, `.git`, `node_modules` and similar tooling folders are skipped. Text added as a note or comment, and ticket titles and descriptions, have prohibited content (3.7) removed. A link to a release, pull request, issue, commit, branch or file of a repository is recorded in that repository's `references` (3.2.1), or on the ticket it was dropped on.
+Inside a dropped folder, `.git`, `node_modules` and similar tooling folders are skipped. Text added as a note or comment, and folio titles, summaries and descriptions, have prohibited content (3.7) removed. A link to a release, pull request, issue, commit, branch or file of a repository is recorded in that repository's `references` (3.2.1).
 
 Every stored item except a repository listing (which records `added_by` and `added_at` itself) gets a small provenance record in `history/intake/`: when, by whom, through which interface, its original name and type.
 
@@ -615,9 +608,9 @@ Every stored item except a repository listing (which records `added_by` and `add
 
 A decision is more than a chat message saying that somebody has agreed. It is a deliberate record of an outcome, its rationale, and the evidence considered.
 
-Each decision should capture a title, date, maker or approving group, the choice, rationale, alternatives when useful, consequences, related tickets, and supporting sources. Decisions may be superseded or revisited without erasing the original record.
+Each decision should capture a title, date, maker or approving group, the choice, rationale, alternatives when useful, consequences, related folios, and supporting sources. Decisions may be superseded or revisited without erasing the original record.
 
-General notes may remain lightweight Markdown documents. `CONTEXT.md` should highlight the current picture without becoming an unstructured dumping ground for every discussion. Important facts should be traceable to tickets, decisions, artifacts, or sources.
+General notes may remain lightweight Markdown documents. `CONTEXT.md` should highlight the current picture without becoming an unstructured dumping ground for every discussion. Important facts should be traceable to folios, decisions, artifacts, or sources.
 
 The system should surface contradictory or stale notes where known. The current context summary is a navigational aid, not an unquestionable authority over original evidence.
 
@@ -627,15 +620,15 @@ The system should surface contradictory or stale notes where known. The current 
 
 ### 10.1 Human operation
 
-The primary interface is a human-accessible workspace. People create folios, choose which work matters, review incoming feedback, assign tickets, share previews, and approve outcomes. External AI agents are supported because they work well with files and standard tools, not because Folio must provide its own conversational AI.
+The primary interface is a human-accessible workspace. People create folios, choose which work matters, review incoming feedback, assign work, share previews, and approve outcomes. External AI agents are supported because they work well with files and standard tools, not because Folio must provide its own conversational AI.
 
 **There is no built-in chatbot, model selector, model-provider integration, or persistent chat product.** People may use Claude, ChatGPT, Cursor, Codex, or other compatible external tools independently.
 
 ### 10.2 MCP access to folios
 
-Folio should expose a standard MCP interface through which an authorised external agent can discover accessible folios, read files, understand tickets and relationships, inspect evidence, and make permitted updates. Agent access must be scoped and revocable.
+Folio should expose a standard MCP interface through which an authorised external agent can discover accessible folios, read files, understand folios inside folios and their relationships, inspect evidence, and make permitted updates. Agent access must be scoped and revocable.
 
-The expected capabilities include discovering folios, reading a folio overview, browsing files, searching content, listing ready tickets, reading ticket histories, creating or editing tickets, linking evidence, reviewing feedback and listing artifacts. The interface should reflect the same truth as the human interface, with no separate agent-only ticket store.
+The expected capabilities include discovering folios, reading a folio overview, browsing files, searching content, listing ready folios, reading change histories, creating or editing folios, linking evidence, reviewing feedback and listing artifacts. The interface should reflect the same truth as the human interface, with no separate agent-only work store.
 
 Read access should be the default; write access should be explicitly approved. Connection to an agent is not proof of permission to access every folio.
 
@@ -682,8 +675,8 @@ Suggested role capabilities:
 | Role | Typical access |
 |---|---|
 | Folder manager (manage on a top-level folder: an organisation's administrator) | Manage who has access to the folder and everything in it, create folders and folios, and eligible connections. |
-| Folio manager | Manage the folio, its tickets, forms, artifacts, invitations, and contributors. |
-| Contributor | Read and update authorised folio content and tickets. |
+| Folio manager | Manage the folio, the folios inside it, forms, artifacts, invitations, and contributors. |
+| Contributor | Read and update authorised folio content. |
 | Viewer | Read selected folio content and artifacts without altering them. |
 | Reviewer | Access selected preview/form resources and provide feedback, without general folio access. |
 | Connected agent | Carry out only approved operations for the authorising person and accessible folios. |
@@ -719,7 +712,7 @@ The hosted environment is Cloudflare, using R2 to hold folio folders and D1 only
 All substantive content must be inside the folio folder, including:
 
 - Folio title, summary, lifecycle state, tags, and portable references.
-- Tickets, relationships, comments, status histories, and execution evidence.
+- Folios inside folios, relationships, comments, change histories, and execution evidence.
 - Decisions and rationale.
 - Feedback form definitions, submitted answers, and relevant attachments.
 - Artifacts, preserved versions, and descriptive metadata.
@@ -731,17 +724,17 @@ All substantive content must be inside the folio folder, including:
 
 D1 and related hosted identity or credential facilities may hold only information required to **find, protect, and connect** folders, including which folders are folios (an id → path index that can be rebuilt from each `folio.json`), access grants on folder paths, restricted folders, invitation status, agent OAuth grants, and integration credential references.
 
-It should not be the authoritative store for ticket content, ticket relationships, feedback responses, artifact descriptions, decisions, documents, or email bodies. Nor should the product require a content database to reconstruct a valid folio.
+It should not be the authoritative store for folio fields, relationships, feedback responses, artifact descriptions, decisions, documents, or email bodies. Nor should the product require a content database to reconstruct a valid folio.
 
 Other systems may hold necessary platform security records. Those records do not become the authority for the business content inside a folio.
 
 ### 12.3 Search and presentation
 
-Search, filtered ticket views, summary pages, and activity feeds are conveniences derived from folder content. They should remain accurate if rebuilt from the folio files and must not silently diverge into a second competing record. An index stored inside a folio is optional and disposable.
+Search, boards, filtered lists, summary pages, and activity feeds are conveniences derived from folder content. They should remain accurate if rebuilt from the folio files and must not silently diverge into a second competing record. An index stored inside a folio is optional and disposable.
 
 ### 12.4 Editing integrity
 
-Several humans or agents may attempt to update a ticket at once. Folio must avoid silent overwrites, give the user a clear conflict outcome, and preserve an attributable history of committed changes. A platform-managed edit should not claim success when only some of its substantive files have changed.
+Several humans or agents may attempt to update a folio at once. Folio must avoid silent overwrites, give the user a clear conflict outcome, and preserve an attributable history of committed changes. A platform-managed edit should not claim success when only some of its substantive files have changed.
 
 A person editing exported files directly may bypass hosted change tracking. Folio must accept that portability trade-off while distinguishing verified hosted activity from unattributed changes detected upon import or synchronisation.
 
@@ -757,7 +750,7 @@ The interface should be approachable to an account manager while remaining usefu
 
 ### 13.1 Top-level navigation
 
-Recommended labels are **Folders**, **Folios**, and **Connections**. Within a folio, the main sections are **Overview**, **Tickets**, **Feedback**, **Artifacts**, **Files**, **Sources**, and **Decisions**. Some smaller sections can be grouped as needed, but the terminology should stay consistent.
+Recommended labels are **Folders**, **Folios**, and **Connections**. Within a folio, the main sections are **Overview**, **Folios** (board and list), **Feedback**, **Artifacts**, **Files**, **Sources**, and **Decisions**. Some smaller sections can be grouped as needed, but the terminology should stay consistent.
 
 ### 13.1.1 Folder board
 
@@ -768,26 +761,26 @@ A folder opens as a **board**, like a project's task board: every folio inside i
 The first screen should communicate:
 
 - Folio title, purpose, status, important dates, and where it is (its folder path).
-- Open tickets, blocked tickets, and work ready to start.
+- The folios inside it: what is ready, in progress, waiting and blocked.
 - Items awaiting customer response or review.
 - Latest artifacts and currently shared previews.
 - Recent significant activity and decisions.
 - Relevant repositories and connections, including unavailable ones.
-- Quick actions such as New Ticket, Add (paste, type or drop), Request Feedback, Upload Artifact, Share Preview, and, for managers, New Folio Inside.
+- Quick actions such as New Folio (a one-line add creates a `ticket`), Add (paste, type or drop), Request Feedback, Upload Artifact, Share Preview, and, for managers, New Folio Inside.
 
 For a small folio, this screen should feel simple rather than empty. For a larger folio, it should offer a concise route to the detail without becoming a dashboard requiring constant maintenance.
 
-### 13.3 Ticket workspace
+### 13.3 Work inside a folio
 
-Tickets should support a readable list, a hierarchical outline, a detail page, and a Ready view. A conventional board is optional. The hierarchy is useful for understanding the work, while the detail page is where source evidence, comments, artifacts, and history come together.
+The folios inside a folio (or a folder) are shown as a **board** (13.1.1) or a **list** with Name, Type, Status, State (readiness), Priority, Owner and Modified columns, sortable and filterable by tag, plus a Ready view. Opening one shows its own page or a Quick Look panel: status, type, priority, owner, tags, blockers, conversation and files together, with drop and quick add.
 
 ### 13.4 Feedback workspace
 
-People can create or edit draft forms, publish them, review responses, and triage submissions. The UI should make it obvious which preview or artifact version a response concerns and whether a ticket has been created for it.
+People can create or edit draft forms, publish them, review responses, and triage submissions. The UI should make it obvious which preview or artifact version a response concerns and whether a folio has been created for it.
 
 ### 13.5 Artifact workspace
 
-Artifacts should offer a library view, revision history, preview/share actions, and related tickets. Users should be able to see exactly which version a customer reviewed and what has been delivered since.
+Artifacts should offer a library view, revision history, preview/share actions, and related folios. Users should be able to see exactly which version a customer reviewed and what has been delivered since.
 
 ### 13.6 File view
 
@@ -803,23 +796,23 @@ People should be able to see which external agents can access their content, the
 
 ### 14.1 An afternoon support request
 
-An account manager creates a folio called “Broken donation form.” They attach a forwarded support email, open one urgent ticket, and link the relevant GitHub repository. An engineer investigates through their preferred tools, fixes the problem, attaches the result, and writes a resolution note. The folio is marked completed that afternoon. Its contents remain understandable if copied to a local folder six months later.
+An account manager creates a folio called “Broken donation form.” They attach a forwarded support email, mark it an urgent bug, and link the relevant GitHub repository. An engineer investigates through their preferred tools, fixes the problem, attaches the result, and posts a resolution update. The folio is marked completed that afternoon. Its contents remain understandable if copied to a local folder six months later.
 
 ### 14.2 A multi-month website refresh
 
-The team creates a folio with a parent ticket for the refresh and child tickets for design, content, and launch readiness. Preview builds are published as artifacts. Reviewers receive links to a preserved preview version and a feedback form. Responses are triaged into tickets, blockers are tracked, decisions are recorded, and approved versions remain identifiable. The final folio becomes a durable record of what was requested, reviewed, and delivered.
+The team creates a folio for the refresh with folios inside it for design, content, and launch readiness. Preview builds are published as artifacts. Reviewers receive links to a preserved preview version and a feedback form. Responses are triaged into folios, blockers are tracked, decisions are recorded, and approved versions remain identifiable. The final folio becomes a durable record of what was requested, reviewed, and delivered.
 
 ### 14.3 Work involving several systems
 
-One folio references two GitHub repositories, a read-only support-data MCP connection, and a documentation MCP connection. A person authorises an external agent to inspect the folio and assist with a ticket. The agent can read the stored evidence and call only approved external tools. It may update a ticket if granted write access. The folio continues to make sense when those external systems are no longer connected.
+One folio references two GitHub repositories, a read-only support-data MCP connection, and a documentation MCP connection. A person authorises an external agent to inspect the folio and assist with a piece of work. The agent can read the stored evidence and call only approved external tools. It may update folios if granted write access. The folio continues to make sense when those external systems are no longer connected.
 
 ### 14.4 Customer feedback becomes accountable work
 
-A customer reviews a new website preview and submits a form noting a mobile layout problem. The submission is retained with its form revision and target artifact version. A human creates a ticket from the response, links it to an existing parent ticket, and assigns it. The fix is demonstrated in a newer artifact version, and the original ticket can show the entire path from report to resolution.
+A customer reviews a new website preview and submits a form noting a mobile layout problem. The submission is retained with its form revision and target artifact version. A human creates a folio from the response inside the design folio, marks it `discovered_from` that work, and assigns it. The fix is demonstrated in a newer artifact version, and the folio can show the entire path from report to resolution.
 
 ### 14.5 Importing a folio elsewhere
 
-A completed folio is exported and later imported into another authorised folder or storage environment. Tickets, relationships, notes, decisions, feedback, and artifacts remain intact. The receiving administrator grants new access and reconnects any necessary external services. No old access credential is silently transferred.
+A completed folio is exported and later imported into another authorised folder or storage environment. Folios inside it, relationships, notes, decisions, feedback, and artifacts remain intact. The receiving administrator grants new access and reconnects any necessary external services. No old access credential is silently transferred.
 
 ---
 
@@ -827,15 +820,15 @@ A completed folio is exported and later imported into another authorised folder 
 
 These are product expectations, independent of a particular delivery mechanism.
 
-**Clarity.** A nontechnical person should be able to create a folio, read ticket status, request feedback, and review an artifact without learning infrastructure terms.
+**Clarity.** A nontechnical person should be able to create a folio, read status, request feedback, and review an artifact without learning infrastructure terms.
 
 **Small-work friendliness.** A folio should not require milestones, epics, estimates, sprints, or formal workflows merely to track one issue.
 
-**Scalable organisation.** A folio containing hundreds of tickets should still permit filtering, dependency navigation, source tracing, and quick discovery of what is ready or blocked.
+**Scalable organisation.** A folio containing hundreds of folios inside it should still permit filtering, dependency navigation, source tracing, and quick discovery of what is ready or blocked.
 
 **Portability.** A folder can be opened offline, and its substantive content retains its meaning without the Folio service. Missing external integrations are disclosed rather than treated as missing folio data.
 
-**Interoperability.** A capable third-party MCP client can access authorised folios without a built-in model provider, a special chat session, or an agent-specific copy of ticket state.
+**Interoperability.** A capable third-party MCP client can access authorised folios without a built-in model provider, a special chat session, or an agent-specific copy of work state.
 
 **Auditability.** Significant business changes are attributable where known. Unverified direct file edits are not falsely represented as securely audited application actions.
 
@@ -843,7 +836,7 @@ These are product expectations, independent of a particular delivery mechanism.
 
 **Resilience.** Loss of an index, cached view, or hosted integration should not destroy the underlying folio record.
 
-**Accessibility.** Forms, ticket navigation, and previews should use readable labels, keyboard-accessible controls, and accessible interaction patterns. Artifact content itself may require additional accessibility work and should not be falsely certified by the platform.
+**Accessibility.** Forms, board and list navigation, and previews should use readable labels, keyboard-accessible controls, and accessible interaction patterns. Artifact content itself may require additional accessibility work and should not be falsely certified by the platform.
 
 ---
 
@@ -853,11 +846,11 @@ The product should be considered faithful to this specification when the followi
 
 1. A folio can be created as an ordinary folder with `folio.json` and `README.md` and subsequently recognised by the product.
 2. A folio can be exported, opened offline, and understood without access to D1, R2, Delegate, Core, GitHub, Slack, or an MCP server.
-3. Folio titles, statuses, tickets, decisions, feedback, artifacts, comments, and substantive history all originate from the folio files rather than a hidden content database.
+3. Folio titles, statuses, the folios inside them, decisions, feedback, artifacts, comments, and substantive history all originate from the folio files rather than a hidden content database.
 4. Two different account members can work on the same folio without silently overwriting each other's updates.
-5. A ticket can have children, blockers, related tickets, and discovery history, and its readiness is explained in ordinary language.
-6. Hundreds of fine-grained execution steps can be associated with one customer-facing ticket without producing hundreds of visible tickets.
-7. An email or feedback response can become a ticket with a traceable link to its retained original evidence.
+5. A folio can hold folios, have blockers, related folios, and discovery history, and its readiness is explained in ordinary language.
+6. Hundreds of fine-grained execution steps can be associated with one customer-facing folio without producing hundreds of visible folios.
+7. An email or feedback response can become a folio with a traceable link to its retained original evidence.
 8. A published feedback response remains associated with the form definition that the respondent answered.
 9. Feedback on a preview can identify an immutable artifact version, and reviewers do not need access to unrelated folio contents.
 10. Multiple git repositories (GitHub or otherwise) and multiple named MCP connections can be listed in one folio without any live connection, and missing live connections are clearly shown after export/import.
@@ -865,7 +858,7 @@ The product should be considered faithful to this specification when the followi
 12. Account-level and folio-level permissions are respected, and revoking a hosted permission removes subsequent hosted access.
 13. No usable credentials or hosting-specific permission grants are required inside a portable folio.
 14. A simple folio remains simple, while a larger one supports hierarchy, evidence, review, and durable decisions.
-15. The application consistently uses **account**, **folio**, **ticket**, **feedback**, and **artifact** as its principal terms.
+15. The application consistently uses **folder**, **folio**, **feedback**, and **artifact** as its principal terms.
 
 ---
 
@@ -873,14 +866,14 @@ The product should be considered faithful to this specification when the followi
 
 The following choices are intentionally left flexible, provided the foundational promises are preserved:
 
-- **How elaborate ticket workflows become.** Additional states and custom fields may be valuable, but they should not complicate the default experience or undermine portable records.
+- **How elaborate workflows become.** Additional states and custom fields may be valuable, but they should not complicate the default experience or undermine portable records.
 - **How much execution history is shown.** Technical actions may be summarised by default, with detailed records available for audit and diagnosis.
 - **How collaboration is expressed.** Comments, mentions, notifications, and review requests may be added without turning Folio into another chat service.
 - **How much of an external source is captured.** A live link may suffice for transient context, while consequential evidence needs a retained snapshot or original.
 - **Which artifact types receive in-browser previews.** Raw files always remain available; safe rendering is a separate capability.
 - **What search experience is offered.** Search can improve considerably without becoming authoritative storage.
 - **Whether folios later support templates or reusable practices.** Templates should produce ordinary folio folders, not introduce invisible state or mandatory infrastructure.
-- **Whether tickets later incorporate named tasks.** Tasks, if introduced, should remain a lower-level concept subordinate to the ticket's customer-facing outcome.
+- **Whether folios later incorporate checklists.** Checklists, if introduced, should remain a lower-level concept subordinate to the folio's outcome.
 
 These are areas for product evolution, not reasons to weaken the core folder model.
 
@@ -890,7 +883,7 @@ These are areas for product evolution, not reasons to weaken the core folder mod
 
 > **The folder is the product record. Everything else is a way to understand, secure, share, or work with that folder.**
 
-A successful folio stands on its own. The hosted application provides a pleasant human workspace and a reliable bridge to agents and external systems, but the work, evidence, tickets, feedback, decisions, and deliverables belong to the folio itself.
+A successful folio stands on its own. The hosted application provides a pleasant human workspace and a reliable bridge to agents and external systems, but the work, evidence, feedback, decisions, and deliverables belong to the folio itself.
 
 ---
 
@@ -898,12 +891,12 @@ A successful folio stands on its own. The hosted application provides a pleasant
 
 ### In version 1
 
-- The portable folio format and the `@engine9/folio` library (validation, tickets, relationships, readiness, repository listing, import checks, search), with examples.
+- The portable folio format and the `@engine9/folio` library (validation, folios inside folios, relationships, readiness, change history, repository listing, import checks, search), with examples.
 - Hosting at `folio.engine9.ai` on Cloudflare: a folder tree in R2 (top-level folders, folders, folios, folios in folios), a D1 control plane for the folio index and access on folders.
 - Sign-in through Delegate via `@engine9/core`; permissions on any folder, subfolder or folio, inherited downwards; conflict-safe editing.
 - An MCP endpoint over the same folio content, with scoped, revocable agent access.
-- A browser workspace laid out like a Finder window: folio list, the folio's folder, tickets (with readiness and tags), repositories, files, sharing.
-- Drag and drop, paste and upload into a folio, filed by the library's routing rule (8.6): text saved as Markdown, HTML or plain text by detection, with the type chosen before or changed after; Asana, Trello and Folio-ticket exports imported as tickets (4.4.1).
+- A browser workspace laid out like a Finder window: folio list, the folio's folder, the folios inside it as a board or list (with readiness, type, priority and tags), Quick Look, repositories, files, sharing.
+- Drag and drop, paste and upload into a folio, filed by the library's routing rule (8.6): text saved as Markdown, HTML or plain text by detection, with the type chosen before or changed after; Asana, Trello and Folio-list exports imported as folios (4.4.1).
 - Email forwarding to a folio's intake address (8.1).
 
 ### Deferred, and what will be needed

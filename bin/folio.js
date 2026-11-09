@@ -6,27 +6,30 @@ import { basename, join, relative } from 'node:path';
 
 const USAGE = `folio: work with folio folders
 
-  folio init <dir> --title "Title" [--summary "..."]
+  Everything is a folio: a folder with a folio.json. A ticket, a task or a sub-project is a folio inside a folio.
+
+  folio init <dir> --title "Title" [--summary "..."] [--type project] [--status active]
+  folio new <dir> --title "..." [--type ticket] [--status backlog] [--priority high] [--tags "a, b"] [--owner ...] [--description "..."]
+      creates a folio inside <dir> (in its own folder, named after the title)
+  folio list <dir>                                     the folios inside, with status, readiness and priority
+  folio set <dir> --status active [--priority ...] [--owner ...] [--tags "a, b"] [--type ...] [--title ...] [--target-date YYYY-MM-DD]
+  folio relate <dir> <blocked_by|related|discovered_from|duplicate_of|supersedes> <fol-id>
+  folio history <dir>
   folio validate <dir>
   folio overview <dir>
-  folio ready <dir>
-  folio add <dir> <file | folder | url | "text"> ... [--ticket TK-001] [--folder notes] [--as markdown|html|text|json|import|file]
+  folio ready <dir>                                    folios inside that could be started now
+  folio add <dir> <file | folder | url | "text"> ... [--folder notes] [--as markdown|html|text|json|import|comment|update|file]
       files the item where it belongs: repo URL -> repositories, .eml -> comms,
-      other links -> sources/links, text -> notes, files -> attachments (or the ticket),
+      other links -> sources/links, text -> notes, files -> attachments,
       data files and logs -> a summary in sources/data, the file itself held in ~/.folio/hold
       (or FOLIO_HOLD_DIR, or --hold-dir) for 30 days. See GUIDE.md for what folios must not hold.
       Text is saved as .md, .html or .txt by what it looks like; --as picks the type instead.
-      An Asana or Trello JSON export (or { "tickets": [...] }) becomes tickets.
-  folio import <dir> <export.json> [--format asana|trello|folio-tickets] [--dry-run]
+      An Asana or Trello JSON export (or { "tickets": [...] }) becomes folios inside this one.
+  folio import <dir> <export.json> [--format asana|trello|folio-list] [--dry-run]
   folio retype <dir> <path> <markdown|html|text>     change a note's file type
-  folio comment <dir> "text" [--ticket TK-001] [--kind comment|update|agent]
-  folio comms <dir> [--ticket TK-001]                  the conversation in time order
-  folio upgrade <dir>                                  move an older folio into the comms/ + attachments/ layout
-  folio ticket new <dir> --title "..." [--type bug] [--priority high] [--tags "a, b"] [--description "..."]
-  folio ticket list <dir>
-  folio ticket show <dir> <TK-001>
-  folio ticket set <dir> <TK-001> --status in_progress [--priority ...] [--owner ...] [--tags "a, b"]
-  folio ticket relate <dir> <TK-001> <parent|blocked_by|related|discovered_from|duplicate_of|supersedes> <TK-002>
+  folio comment <dir> "text" [--kind comment|update|agent]
+  folio comms <dir>                                    the conversation in time order
+  folio upgrade <dir>                                  bring an older folio up to date (comms/, attachments/, tickets -> folios)
   folio repo add <dir> <owner/name | url> [--purpose "..."] [--role primary]
   folio repo list <dir>
   folio search <dir> <text>
@@ -59,12 +62,12 @@ async function main() {
     const [dir] = rest;
     if (!dir || !flags.title) throw new Error('usage: folio init <dir> --title "Title"');
     await mkdir(dir, { recursive: true });
-    const f = await Folio.init(new NodeFs(dir), { title: String(flags.title), summary: flags.summary && String(flags.summary) });
+    const f = await Folio.init(new NodeFs(dir), { title: String(flags.title), summary: flags.summary && String(flags.summary), type: flags.type && String(flags.type), status: flags.status ? String(flags.status) : 'active', actor, via });
     return out(`Created folio ${(await f.manifest()).manifest.id} in ${dir}`);
   }
 
-  // `ticket` and `repo` take a subcommand first: folio ticket list <dir>. Others: folio validate <dir>.
-  const grouped = cmd === 'ticket' || cmd === 'repo';
+  // `repo` takes a subcommand first: folio repo list <dir>. Others: folio validate <dir>.
+  const grouped = cmd === 'repo';
   const sub0 = grouped ? rest[0] : undefined;
   const [dir, ...tail] = grouped ? rest.slice(1) : rest;
   const args = grouped ? [sub0, ...tail] : tail;
@@ -80,7 +83,7 @@ async function main() {
   }
   if (cmd === 'overview') return out(await folio.overview());
   if (cmd === 'ready') {
-    for (const t of await folio.readyTickets()) console.log(`${t.id}  [${t.priority}]  ${t.title}`);
+    for (const c of (await folio.children()).filter((c) => c.readiness.ready)) console.log(`${c.id}  [${c.priority || 'normal'}]  ${c.title}  (${c.dir})`);
     return;
   }
   if (cmd === 'search') return out(await folio.search(args.join(' ')));
@@ -88,7 +91,7 @@ async function main() {
   if (cmd === 'add') {
     if (!args.length) throw new Error('usage: folio add <dir> <file | folder | url | "text"> ...');
     const as = flags.as ? String(flags.as) : undefined;
-    const opts = { actor, via, ...(flags.ticket ? { ticket: String(flags.ticket) } : {}), ...(flags.folder ? { folder: String(flags.folder) } : {}) };
+    const opts = { actor, via, ...(flags.folder ? { folder: String(flags.folder) } : {}) };
     const hold = new LocalHold({ dir: flags['hold-dir'] && String(flags['hold-dir']), folioId: (await folio.manifest()).manifest.id });
     await hold.sweep();
     folio.hold = hold;
@@ -121,9 +124,9 @@ async function main() {
     return out((await folio.setTextFormat(args[0], args[1], { actor, via })).summary);
   }
 
-  if (cmd === 'comment') return out((await folio.comment(flags.ticket ? String(flags.ticket) : null, args.join(' '), { actor, via, kind: flags.kind ? String(flags.kind) : 'comment' })).path);
+  if (cmd === 'comment') return out((await folio.comment(args.join(' '), { actor, via, kind: flags.kind ? String(flags.kind) : 'comment' })).path);
   if (cmd === 'comms') {
-    for (const m of await folio.comms({ ticket: flags.ticket ? String(flags.ticket) : null })) console.log(`${String(m.at).slice(0, 16)}  ${m.kind.padEnd(7)} ${m.ticket ? `[${m.ticket}] ` : ''}${m.subject ? `${m.subject}: ` : ''}${m.text.split('\n')[0].slice(0, 100)}`);
+    for (const m of await folio.comms()) console.log(`${String(m.at).slice(0, 16)}  ${m.kind.padEnd(7)} ${m.subject ? `${m.subject}: ` : ''}${m.text.split('\n')[0].slice(0, 100)}`);
     return;
   }
   if (cmd === 'upgrade') return out((await folio.upgradeLayout({ actor, via })).summary);
@@ -140,23 +143,26 @@ async function main() {
     }
   }
 
-  if (cmd === 'ticket') {
-    const [sub, ...a] = args;
-    if (sub === 'new') {
-      if (!flags.title) throw new Error('--title is required');
-      return out(await folio.createTicket({ title: String(flags.title), type: flags.type && String(flags.type), priority: flags.priority && String(flags.priority), tags: flags.tags && String(flags.tags), description: flags.description && String(flags.description) }, { actor, via }));
-    }
-    if (sub === 'list') {
-      for (const t of await folio.ticketViews()) console.log(`${t.id}  ${t.status.padEnd(11)} ${t.readiness.state.padEnd(11)} [${t.priority}]  ${t.title}`);
-      return;
-    }
-    if (sub === 'show') return out({ ...(await folio.ticketViews()).find((t) => t.id === a[0]), events: await folio.ticketEvents(a[0]) });
-    if (sub === 'set') {
-      const patch = {};
-      for (const k of ['status', 'priority', 'owner', 'type', 'title', 'resolution', 'resolution_note', 'tags']) if (flags[k] !== undefined) patch[k] = String(flags[k]);
-      return out(await folio.updateTicket(a[0], patch, { actor, via }));
-    }
-    if (sub === 'relate') return out(await folio.relate(a[0], a[1], a[2], { actor, via }));
+  if (cmd === 'new') {
+    if (!flags.title) throw new Error('--title is required');
+    const r = await folio.createChild({ title: String(flags.title), type: flags.type ? String(flags.type) : 'ticket', status: flags.status ? String(flags.status) : 'backlog', priority: flags.priority && String(flags.priority), tags: flags.tags && String(flags.tags), owner: flags.owner && String(flags.owner), description: flags.description && String(flags.description) }, { actor, via });
+    return out(`Created ${r.id} in ${join(dir, r.dir)}`);
+  }
+  if (cmd === 'list') {
+    for (const c of await folio.children()) console.log(`${c.id}  ${String(c.status).padEnd(10)} ${c.readiness.state.padEnd(11)} [${c.priority || 'normal'}]  ${c.title}  (${c.dir})`);
+    return;
+  }
+  if (cmd === 'set') {
+    const patch = {};
+    for (const k of ['status', 'priority', 'owner', 'type', 'title', 'resolution', 'tags', 'summary', 'outcome']) if (flags[k] !== undefined) patch[k] = String(flags[k]);
+    if (flags['target-date'] !== undefined) patch.target_date = String(flags['target-date']);
+    const m = await folio.edit(patch, { actor, via });
+    return out(`${m.title}: ${m.status}`);
+  }
+  if (cmd === 'relate') return out((await folio.relate(args[0], args[1], { actor, via })).relationships);
+  if (cmd === 'history') {
+    for (const h of await folio.history()) console.log(`${String(h.at).slice(0, 16)}  ${h.type.padEnd(8)} ${Object.entries(h.changes || {}).map(([k, v]) => `${k}: ${JSON.stringify(v.from)} → ${JSON.stringify(v.to)}`).join('; ')}`);
+    return;
   }
   throw new Error(`Unknown command. Run "folio help".`);
 }

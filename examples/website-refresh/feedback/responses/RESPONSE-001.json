@@ -21,7 +21,6 @@
   },
   "disposition": {
     "state": "accepted",
-    "note": "Real defect, tracked.",
-    "ticket": "TK-005"
+    "note": "Real defect, tracked in the design folio."
   }
 }

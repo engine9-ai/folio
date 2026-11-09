@@ -8,18 +8,17 @@ import { scrubText } from './privacy.js';
  * in order and a conversation reads top to bottom without visiting several folders:
  *
  *   comms/2026-11-02-donate-button-broken-1a2b3c4d.eml        an email, as received (or a text copy, spec 3.7)
- *   comms/2026-11-09-153012-pat-confirm-the-split.comment.json   a comment (on the folio, or on a ticket)
+ *   comms/2026-11-09-153012-pat-confirm-the-split.comment.json   a comment
  *   comms/2026-11-09-160000-weekly-status.update.json         a status update
  *   comms/2026-11-09-161500-ran-the-pii-scan.agent.json        something an agent reports
  *   comms/2026-11-09-170000-slack-thread.chat.json             a captured chat
  *   comms/2026-11-30-000000-through-november.summary.md        a summary that stands in for older messages
  *
- * Files people add (screenshots, documents, an email's attachments) are assets, kept apart in `attachments/`
- * (and a ticket's own `attachments/`), so the conversation folder stays small enough to read, summarise and
+ * Files people add (screenshots, documents, an email's attachments) are assets, kept apart in `attachments/`, so the conversation folder stays small enough to read, summarise and
  * compress. A message refers to assets by path.
  *
  * A message file (.comment/.update/.agent/.chat .json):
- *   { "at", "kind", "author": { type, id, on_behalf_of? }, "via", "text", "ticket"?: "TK-001",
+ *   { "at", "kind", "author": { type, id, on_behalf_of? }, "via", "text",
  *     "attachments"?: [paths], "imported"?: { source, author, at } }
  */
 
@@ -64,7 +63,7 @@ export function messageName(at, text, kind) {
  * Write a message to comms/. Text is scrubbed of card numbers and credentials (spec 3.7). Returns
  * { path, message, removed? }.
  */
-export async function postMessage(folio, { kind = 'comment', text, ticket = null, attachments = [], actor, via = 'folio-lib', at = null, imported = null }) {
+export async function postMessage(folio, { kind = 'comment', text, attachments = [], actor, via = 'folio-lib', at = null, imported = null }) {
   if (!MESSAGE_KINDS.includes(kind)) throw new ValidationError(`A message is one of ${MESSAGE_KINDS.join(', ')}`);
   if (!text || !String(text).trim()) throw new ValidationError('A message cannot be empty');
   const { text: clean, removed, total } = scrubText(String(text));
@@ -75,7 +74,6 @@ export async function postMessage(folio, { kind = 'comment', text, ticket = null
     author: actor || { type: 'unknown' },
     via,
     text: clean,
-    ...(ticket ? { ticket } : {}),
     ...(attachments.length ? { attachments } : {}),
     ...(imported ? { imported } : {}),
   };
@@ -103,24 +101,19 @@ export const isEmailPath = (p) => EMAIL_FILE.test(p) && EMAIL_DIRS.some((d) => p
  *   { kind, path, at, author, text, ticket?, subject?, from?, to?, truncated? }
  * `ticket` keeps one ticket's messages (and emails linked from it). `limit` keeps the newest.
  */
-export async function readComms(folio, { ticket = null, limit = 200, maxChars = 4000, read } = {}) {
+export async function readComms(folio, { limit = 200, maxChars = 4000, read } = {}) {
   const fs = folio.fs;
   const paths = [...new Set([...(await fs.list(COMMS_DIR)), ...(await fs.list('sources/email'))])].filter((p) => commsKindOf(p) && (p.startsWith(`${COMMS_DIR}/`) ? !p.slice(COMMS_DIR.length + 1).includes('/') : isEmailPath(p)));
-  const tickets = await folio.listTickets();
-  const linked = new Map();
-  for (const t of tickets) for (const l of t.links || []) if (l.path && isEmailPath(l.path)) linked.set(l.path, [...(linked.get(l.path) || []), t.id]);
-  let chosen = paths;
-  if (ticket) chosen = paths.filter((p) => commsKindOf(p) !== 'email' || (linked.get(p) || []).includes(ticket));
-  const files = await read(chosen, (p) => (/\.msg$/i.test(p) ? null : fs.read(p)));
+  const files = await read(paths, (p) => (/\.msg$/i.test(p) ? null : fs.read(p)));
   const items = [];
-  for (const [i, path] of chosen.entries()) {
+  for (const [i, path] of paths.entries()) {
     const kind = commsKindOf(path);
     const cur = files[i];
     if (kind === 'email') {
       const parsed = cur ? parseEmail(cur.text) : null;
       const text = parsed?.text || '';
       const h = parsed?.headers || {};
-      items.push({ kind, path, at: h.date || dateFromName(path), author: { type: 'email', id: h.from || null }, from: h.from || null, to: h.to || null, subject: h.subject || null, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), tickets: linked.get(path) || [] });
+      items.push({ kind, path, at: isoOf(h.date) || dateFromName(path), author: { type: 'email', id: h.from || null }, from: h.from || null, to: h.to || null, subject: h.subject || null, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}) });
       continue;
     }
     if (!cur) continue;
@@ -134,19 +127,16 @@ export async function readComms(folio, { ticket = null, limit = 200, maxChars = 
     } catch {
       continue;
     }
-    if (ticket && m.ticket !== ticket) continue;
     const text = String(m.text || '');
-    items.push({ kind, path, at: m.at || dateFromName(path), author: m.author || { type: 'unknown' }, via: m.via, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(m.ticket ? { ticket: m.ticket } : {}), ...(m.attachments ? { attachments: m.attachments } : {}), ...(m.imported ? { imported: m.imported } : {}) });
-  }
-  // Comments that earlier versions kept as ticket events.
-  for (const t of ticket ? tickets.filter((x) => x.id === ticket) : tickets) {
-    for (const e of await folio.ticketEvents(t.id)) {
-      if (e.type !== 'comment' || !e.comment) continue;
-      items.push({ kind: 'comment', path: `tickets/${t.id}/events/${String(e.revision).padStart(6, '0')}.json`, at: e.imported?.at || e.at, author: e.actor || { type: 'unknown' }, via: e.via, text: String(e.comment).slice(0, maxChars), ticket: t.id, legacy: true, ...(e.imported ? { imported: e.imported } : {}) });
-    }
+    items.push({ kind, path, at: m.at || dateFromName(path), author: m.author || { type: 'unknown' }, via: m.via, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(m.attachments ? { attachments: m.attachments } : {}), ...(m.imported ? { imported: m.imported } : {}) });
   }
   items.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')) || a.path.localeCompare(b.path));
   return limit && items.length > limit ? items.slice(-limit) : items;
+}
+
+function isoOf(d) {
+  const t = Date.parse(d || '');
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
 }
 
 function dateFromName(path) {

@@ -1,0 +1,27 @@
+{
+  "at": "2026-09-01T22:00:00.000Z",
+  "actor": {
+    "type": "user",
+    "id": "robin@example.com",
+    "name": "Robin (engineer)"
+  },
+  "via": "folio-lib",
+  "type": "updated",
+  "changes": {
+    "repositories": {
+      "from": null,
+      "to": [
+        {
+          "provider": "github",
+          "repository": "example/customer-portal",
+          "url": "https://github.com/example/customer-portal",
+          "purpose": "Portal application",
+          "role": "primary",
+          "default_branch": "main",
+          "added_at": "2026-09-01T20:00:00.000Z",
+          "added_by": "robin@example.com"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "at": "2026-09-02T17:00:00.000Z",
+  "kind": "comment",
+  "author": {
+    "type": "user",
+    "id": "sam@example.com",
+    "name": "Sam (account manager)"
+  },
+  "via": "example",
+  "text": "From Pat's review (feedback/responses/RESPONSE-001.json in the portal folio): on a phone the primary button overlaps the password field."
+}

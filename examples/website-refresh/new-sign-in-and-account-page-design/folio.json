@@ -1,0 +1,18 @@
+{
+  "format": "folio",
+  "format_revision": 1,
+  "id": "fol-5z2cxd",
+  "title": "New sign-in and account page design",
+  "status": "review",
+  "created_at": "2026-09-02T05:00:00.000Z",
+  "updated_at": "2026-09-02T18:00:00.000Z",
+  "type": "feature",
+  "priority": "high",
+  "owner": "robin@example.com",
+  "relationships": [
+    {
+      "type": "blocked_by",
+      "target": "fol-2py96q"
+    }
+  ]
+}

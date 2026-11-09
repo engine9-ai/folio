@@ -45,12 +45,10 @@ test('pasted text is saved as .md, .html or .txt by what it looks like', async (
 
 test('as: overriding detection, comments, JSON and folders', async () => {
   const { folio, fs } = await make();
-  const t = await folio.createTicket({ title: 'Launch' }, { actor });
-  // On a ticket, text is a comment unless a file type is chosen.
-  assert.equal((await folio.add({ text: '# Notes' }, { actor, ticket: t.id }))[0].ticket, t.id);
-  const [file] = await folio.add({ text: '# Notes\n\n- one\n- two', as: 'markdown' }, { actor, ticket: t.id });
-  assert.equal(file.path, `tickets/${t.id}/attachments/2026-11-09-notes.md`);
-  assert.ok((await folio.getTicket(t.id)).ticket.links.some((l) => l.path === file.path));
+  // Comments and updates go to comms/.
+  const [c] = await folio.add({ text: '# Notes', as: 'comment' }, { actor });
+  assert.equal(c.kind, 'message');
+  assert.match(c.path, /^comms\/.+\.comment\.json$/);
   // In a folder, the note goes in that folder.
   const [inFolder] = await folio.add({ text: 'Draft copy' }, { actor, folder: 'drafts' });
   assert.equal(inFolder.path, 'drafts/2026-11-09-draft-copy.txt');
@@ -77,24 +75,23 @@ test('intakeChoices: what will happen and what else it could be', () => {
   assert.equal(md.as, 'markdown');
   assert.match(md.label, /Markdown.*detected/);
   assert.deepEqual(md.choices.map((c) => c.as), ['markdown', 'html', 'text', 'comment', 'update']);
-  const onTicket = intakeChoices({ text: 'hello' }, { ticket: 'TK-001' });
-  assert.equal(onTicket.as, 'comment');
-  assert.equal(onTicket.choices[0].as, 'comment');
+  const asComment = intakeChoices({ text: 'hello', as: 'comment' });
+  assert.deepEqual([asComment.as, asComment.where], ['comment', 'comms/']);
   const chosen = intakeChoices({ text: 'hello', as: 'html' });
   assert.equal(chosen.as, 'html');
   assert.equal(intakeChoices({ text: '{"a": 1}' }).as, 'json');
   assert.equal(intakeChoices({ url: 'https://example.com' }).kind, 'link');
 });
 
-test('setTextFormat renames a note and follows ticket links', async () => {
+test('setTextFormat renames a note and follows the folio\'s links', async () => {
   const { folio, fs } = await make();
-  const t = await folio.createTicket({ title: 'Docs' }, { actor });
-  const [n] = await folio.add({ text: 'Plain *looking* text', as: 'markdown' }, { actor, ticket: t.id });
+  const [n] = await folio.add({ text: 'Plain *looking* text', as: 'markdown' }, { actor, folder: 'docs' });
+  await folio.updateManifest({ links: [{ type: 'attachment', path: n.path }] });
   const r = await folio.setTextFormat(n.path, 'html', { actor });
-  assert.equal(r.path, `tickets/${t.id}/attachments/2026-11-09-plain-looking-text.html`);
+  assert.equal(r.path, 'docs/2026-11-09-plain-looking-text.html');
   assert.equal(await fs.exists(n.path), false);
   assert.equal((await fs.read(r.path)).text, 'Plain *looking* text\n');
-  assert.ok((await folio.getTicket(t.id)).ticket.links.some((l) => l.path === r.path));
+  assert.equal((await folio.manifest()).manifest.links[0].path, r.path);
   assert.equal((await folio.setTextFormat(r.path, 'html')).changed, false);
   await assert.rejects(folio.setTextFormat('README.md', 'text'), ValidationError);
   await assert.rejects(folio.setTextFormat('folio.json', 'text'), ValidationError);
@@ -151,46 +148,79 @@ test('comms: one folder for all the conversation, in order; assets apart', async
   const tick = () => new Date(Date.UTC(2026, 10, 9, 15, 0, clock++)).toISOString();
   const folio = await Folio.init(fs, { title: 'Comms', now: tick });
   folio.now = tick;
-  const t = await folio.createTicket({ title: 'Scan for PII' }, { actor });
-  const a = await folio.comment(null, 'Kickoff: M+R to confirm the geography split', { actor });
+  const a = await folio.comment('Kickoff: M+R to confirm the geography split', { actor });
   assert.match(a.path, /^comms\/2026-11-09-150002-kickoff-m-r-to-confirm-the-geography-spl\.comment\.json$/);
-  await folio.comment(t.id, 'current plan: country | state,city,zip', { actor });
   await folio.post('update', 'On track for Friday', { actor });
   await folio.post('agent', 'Scanned 3 tables; no PII found', { actor: { type: 'agent', id: 'agent:claude', on_behalf_of: 'sam@example.com' } });
-  await folio.add({ name: 'm.eml', data: new TextEncoder().encode('From: Pat <pat@x.example>\r\nSubject: Split\r\nDate: Mon, 09 Nov 2026 15:00:10 +0000\r\n\r\nOr country,state | city,zip\r\n') }, { actor, ticket: t.id });
+  await folio.add({ name: 'm.eml', data: new TextEncoder().encode('From: Pat <pat@x.example>\r\nSubject: Split\r\nDate: Mon, 09 Nov 2026 15:00:10 +0000\r\n\r\nOr country,state | city,zip\r\n') }, { actor });
   await folio.add({ text: 'Status: waiting on M+R', as: 'update' }, { actor });
   const [shot] = await folio.add({ name: 'shot.png', data: new Uint8Array([1]) }, { actor });
   assert.equal(shot.path, 'attachments/shot.png');
   const all = await folio.comms();
-  assert.deepEqual(all.map((m) => m.kind), ['comment', 'comment', 'update', 'agent', 'update', 'email']); // in time order: the email is dated 15:00:10
+  assert.deepEqual(all.map((m) => m.kind), ['comment', 'update', 'agent', 'update', 'email']); // in time order: the email is dated 15:00:10
   assert.ok(all.every((m) => m.path.startsWith('comms/')));
-  assert.equal(all[3].author.on_behalf_of, 'sam@example.com');
-  const onTicket = await folio.comms({ ticket: t.id });
-  assert.deepEqual(onTicket.map((m) => m.kind), ['comment', 'email']);
-  assert.equal(onTicket[1].subject, 'Split');
+  assert.equal(all[2].author.on_behalf_of, 'sam@example.com');
+  assert.equal(all[4].subject, 'Split');
   assert.equal((await folio.validate()).ok, true);
-  // A ticket is unchanged by comments.
-  assert.equal((await folio.getTicket(t.id)).ticket.revision, 2); // created, then linked to the email
+  // Comments do not change folio.json.
+  assert.deepEqual((await folio.history()).map((h) => h.type), ['created']);
 });
 
-test('upgradeLayout moves an older folio: emails to comms/, uploads to attachments/, links follow', async () => {
+test('upgradeLayout moves an older folio: emails to comms/, uploads to attachments/', async () => {
   const fs = new MemoryFs();
   const folio = await Folio.init(fs, { title: 'Old', now });
   await fs.write('sources/email/2026-11-02-hello-abcd1234.eml', 'From: a@b.example\r\nSubject: Hello\r\nDate: Mon, 02 Nov 2026 10:00:00 +0000\r\n\r\nHi\r\n');
   await fs.write('sources/email/attachments/2026-11-02-hello-abcd1234/a.pdf', '%PDF');
   await fs.write('sources/uploads/brief.pdf', '%PDF');
-  const t = await folio.createTicket({ title: 'T', links: [{ type: 'source', path: 'sources/email/2026-11-02-hello-abcd1234.eml' }] }, { actor });
-  // An older comment kept as a ticket event still reads.
-  const { ticket, etag } = await folio.getTicket(t.id);
-  await folio._commit(ticket, etag, ticket, { type: 'comment', comment: 'Old style' }, 'test', actor);
-  assert.deepEqual((await folio.comms()).map((m) => m.kind).sort(), ['comment', 'email']);
+  assert.deepEqual((await folio.comms()).map((m) => m.kind), ['email']); // older layouts still read
   const r = await folio.upgradeLayout({ actor });
   assert.equal(r.moved, 3);
   assert.deepEqual(r.moves['sources/uploads/brief.pdf'], 'attachments/brief.pdf');
   assert.equal(await fs.exists('comms/2026-11-02-hello-abcd1234.eml'), true);
   assert.equal(await fs.exists('attachments/2026-11-02-hello-abcd1234/a.pdf'), true);
-  assert.deepEqual((await fs.list('sources')), []);
-  assert.equal((await folio.getTicket(t.id)).ticket.links[0].path, 'comms/2026-11-02-hello-abcd1234.eml');
+  assert.deepEqual(await fs.list('sources'), []);
   assert.equal((await folio.emails()).length, 1);
   assert.equal((await folio.upgradeLayout()).moved, 0);
+});
+
+test('upgradeLayout turns tickets into folios inside the folio, keeping everything they had', async () => {
+  const fs = new MemoryFs();
+  const folio = await Folio.init(fs, { title: 'Support', now });
+  const ev = (id, revision, type, extra = {}) => fs.write(`tickets/${id}/events/${String(revision).padStart(6, '0')}.json`, JSON.stringify({ ticket: id, revision, at: `2026-11-0${revision}T10:00:00.000Z`, actor: { type: 'user', id: 'pat@x.example' }, via: 'web', type, ...extra }));
+  const ticket = (t) => fs.write(`tickets/${t.id}/ticket.json`, JSON.stringify({ type: 'support', priority: 'normal', revision: 1, created_at: '2026-11-01T10:00:00.000Z', updated_at: '2026-11-01T10:00:00.000Z', ...t }));
+  await fs.write('sources/email/2026-11-01-reset-loop-1234abcd.eml', 'From: donor-ops@client.example\r\nSubject: Reset loop\r\nDate: Sun, 01 Nov 2026 09:00:00 +0000\r\n\r\nIt loops.\r\n');
+  await ticket({ id: 'TK-001', title: 'Password reset link loops', status: 'in_progress', priority: 'high', labels: ['auth'], owner: 'sam@x.example', links: [{ type: 'source', label: 'Email: Reset loop', path: 'sources/email/2026-11-01-reset-loop-1234abcd.eml' }, { type: 'url', url: 'https://github.com/a/b/issues/3' }] });
+  await fs.write('tickets/TK-001/description.md', 'Safari only.\n');
+  await fs.write('tickets/TK-001/attachments/shot.png', 'PNG');
+  await ev('TK-001', 1, 'created');
+  await ev('TK-001', 2, 'comment', { comment: 'Reproduced on iOS' });
+  await ev('TK-001', 3, 'updated', { changes: { status: { from: 'open', to: 'in_progress' } } });
+  await ticket({ id: 'TK-002', title: 'Check iOS 18', status: 'closed', resolution: 'fixed', relationships: [{ type: 'parent', target: 'TK-001' }] });
+  await ticket({ id: 'TK-003', title: 'Release the fix', status: 'open', relationships: [{ type: 'blocked_by', target: 'TK-001' }] });
+  await ticket({ id: 'TK-004', title: 'Old idea', status: 'cancelled' });
+  const r = await folio.upgradeLayout({ actor });
+  assert.equal(r.converted.length, 4);
+  assert.match(r.summary, /Turned 4 tickets into folios/);
+  assert.deepEqual(await fs.list('tickets'), []);
+  const byAlias = Object.fromEntries(r.converted.map((c) => [c.alias, c]));
+  assert.equal(byAlias['TK-001'].dir, 'password-reset-link-loops');
+  assert.equal(byAlias['TK-002'].dir, 'password-reset-link-loops/check-ios-18'); // a subtask inside its task
+  const reset = folio.child(byAlias['TK-001'].dir);
+  const m = (await reset.manifest()).manifest;
+  assert.deepEqual([m.title, m.type, m.status, m.priority, m.tags, m.owner, m.aliases], ['Password reset link loops', 'support', 'active', 'high', ['auth'], 'sam@x.example', ['TK-001']]);
+  assert.deepEqual(m.links, [{ type: 'url', url: 'https://github.com/a/b/issues/3' }]);
+  assert.equal((await reset.fs.read('README.md')).text, '# Password reset link loops\n\nSafari only.\n');
+  assert.equal(await reset.fs.exists('attachments/shot.png'), true);
+  const said = await reset.comms();
+  assert.deepEqual(said.map((x) => [x.kind, x.text || x.subject]), [['email', 'It loops.'], ['comment', 'Reproduced on iOS']]);
+  assert.equal(said[1].at, '2026-11-02T10:00:00.000Z');
+  assert.ok((await reset.history()).some((h) => h.ticket?.id === 'TK-001' && h.changes?.status?.to === 'in_progress'));
+  const release = (await folio.child(byAlias['TK-003'].dir).manifest()).manifest;
+  assert.deepEqual([release.status, release.relationships], ['backlog', [{ type: 'blocked_by', target: byAlias['TK-001'].id }]]);
+  assert.deepEqual([(await folio.child(byAlias['TK-002'].dir).manifest()).manifest.status, (await folio.child(byAlias['TK-004'].dir).manifest()).manifest.resolution], ['completed', 'cancelled']);
+  // The folio sees them as its folios; everything validates; running again does nothing.
+  const after = await Folio.open(fs, { nested: 'detect' });
+  assert.deepEqual((await after.children()).map((c) => c.title).sort(), ['Old idea', 'Password reset link loops', 'Release the fix']);
+  assert.equal((await after.validate()).ok, true);
+  assert.equal((await after.upgradeLayout()).converted.length, 0);
 });

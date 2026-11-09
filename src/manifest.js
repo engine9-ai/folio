@@ -1,4 +1,5 @@
 import { validateRepositories } from './repositories.js';
+import { FOLIO_PRIORITIES, FOLIO_TYPES, RELATIONSHIP_TYPES, isFolioId } from './relations.js';
 
 export const FORMAT = 'folio';
 export const FORMAT_REVISION = 1;
@@ -58,6 +59,24 @@ export function validateManifest(m) {
     if (m[k] !== undefined && Number.isNaN(Date.parse(m[k]))) err('manifest_date', `${k} must be an ISO timestamp`);
   }
   if (m.tags !== undefined && (!Array.isArray(m.tags) || m.tags.some((t) => typeof t !== 'string'))) err('manifest_tags', 'tags must be an array of strings');
+  if (m.type !== undefined) {
+    if (typeof m.type !== 'string' || !FOLIO_STATUS_PATTERN.test(m.type)) err('manifest_type', `type must be a lowercase word such as ${FOLIO_TYPES.join(', ')}`);
+    else if (!FOLIO_TYPES.includes(m.type)) problems.push({ level: 'warning', code: 'manifest_custom_type', path: 'folio.json', message: `"${m.type}" is not a standard type (${FOLIO_TYPES.join(', ')})` });
+  }
+  if (m.priority !== undefined && !FOLIO_PRIORITIES.includes(m.priority)) err('manifest_priority', `priority must be one of ${FOLIO_PRIORITIES.join(', ')}`);
+  if (m.target_date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(m.target_date))) err('manifest_target_date', 'target_date must be YYYY-MM-DD');
+  if (m.aliases !== undefined && (!Array.isArray(m.aliases) || m.aliases.some((t) => typeof t !== 'string'))) err('manifest_aliases', 'aliases must be an array of strings');
+  if (m.external !== undefined && (!m.external || typeof m.external !== 'object' || typeof m.external.source !== 'string' || typeof m.external.id !== 'string'))
+    err('manifest_external', 'external must be { source, id } naming where the folio was imported from');
+  if (m.links !== undefined && (!Array.isArray(m.links) || m.links.some((l) => !l || typeof l !== 'object' || (typeof l.url !== 'string' && typeof l.path !== 'string')))) err('manifest_links', 'links must be an array of { url } or { path }');
+  if (m.relationships !== undefined) {
+    if (!Array.isArray(m.relationships)) err('manifest_relationships', 'relationships must be an array');
+    else
+      m.relationships.forEach((r) => {
+        if (!r || !RELATIONSHIP_TYPES.includes(r.type) || !isFolioId(r.target)) err('manifest_relationship', `invalid relationship ${JSON.stringify(r)}; types: ${RELATIONSHIP_TYPES.join(', ')}; targets are folio ids`);
+        else if (r.target === m.id) err('manifest_self_reference', 'a folio cannot relate to itself');
+      });
+  }
   if (m.connections !== undefined) {
     if (!Array.isArray(m.connections)) err('connections_not_array', 'connections must be an array');
     else

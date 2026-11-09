@@ -1,0 +1,11 @@
+{
+  "at": "2026-09-02T10:00:00.000Z",
+  "actor": {
+    "type": "user",
+    "id": "sam@example.com",
+    "name": "Sam (account manager)"
+  },
+  "via": "example",
+  "type": "created",
+  "changes": {}
+}

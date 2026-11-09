@@ -1,0 +1,30 @@
+{
+  "at": "2026-09-02T14:00:00.000Z",
+  "actor": {
+    "type": "user",
+    "id": "sam@example.com",
+    "name": "Sam (account manager)"
+  },
+  "via": "example",
+  "type": "updated",
+  "changes": {
+    "relationships": {
+      "from": [
+        {
+          "type": "blocked_by",
+          "target": "fol-5z2cxd"
+        }
+      ],
+      "to": [
+        {
+          "type": "blocked_by",
+          "target": "fol-5z2cxd"
+        },
+        {
+          "type": "blocked_by",
+          "target": "fol-xpm3mx"
+        }
+      ]
+    }
+  }
+}

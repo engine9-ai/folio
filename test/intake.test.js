@@ -84,28 +84,25 @@ test('files go to attachments with Finder-style names; folder drops keep their s
   assert.match(f.path, /^comms\//); // but an email always goes to comms
 });
 
-test('dropped on a ticket: attachments, linked sources and links, text becomes a comment; the folio still validates', async () => {
+test('dropped on a folio inside a folio: files, emails, links and comments go to that folio; both validate', async () => {
   const { folio, fs } = await make();
-  await folio.createTicket({ title: 'Donate button', tags: 'payments, safari' }, { actor });
-  const [file] = await folio.add({ name: 'console.log', data: bytes('TypeError') }, { actor, ticket: 'TK-001' });
-  assert.equal(file.path, 'tickets/TK-001/attachments/console.log');
-  const [mail] = await folio.add({ name: 'm.eml', data: bytes(EML) }, { actor, ticket: 'TK-001' });
+  const { folio: donate, dir } = await folio.createChild({ title: 'Donate button', type: 'bug', tags: 'payments, safari' }, { actor });
+  const [file] = await donate.add({ name: 'console.log', data: bytes('TypeError') }, { actor });
+  assert.equal(file.path, 'attachments/console.log');
+  assert.equal(await fs.exists(`${dir}/attachments/console.log`), true);
+  const [mail] = await donate.add({ name: 'm.eml', data: bytes(EML) }, { actor });
   assert.match(mail.path, /^comms\//);
-  await folio.add({ url: 'https://status.example.com/incident/7' }, { actor, ticket: 'TK-001' });
-  await folio.add({ text: 'Reproduced on iOS too' }, { actor, ticket: 'TK-001' });
-  const [viaFolder] = await folio.add({ name: 'b.txt', data: bytes('b') }, { actor, folder: 'tickets/TK-001/events' });
-  assert.equal(viaFolder.path, 'tickets/TK-001/attachments/b.txt');
-  const { ticket } = await folio.getTicket('TK-001');
-  assert.deepEqual(ticket.links.map((l) => l.type), ['attachment', 'source', 'url', 'attachment']);
-  const events = await folio.ticketEvents('TK-001');
-  const said = await folio.comms({ ticket: 'TK-001' });
-  assert.ok(said.some((m) => m.kind === 'comment' && m.text === 'Reproduced on iOS too' && m.path.startsWith('comms/') && m.path.endsWith('.comment.json')));
-  assert.ok(said.some((m) => m.kind === 'email' && m.path === mail.path)); // the ticket's conversation includes its email
-  assert.ok(events.some((e) => e.type === 'linked'));
-  assert.equal((await fs.list('sources/links')).length, 0); // the ticket holds the link
-  const v = await validateFolio(fs);
-  assert.equal(v.ok, true, JSON.stringify(v.problems));
-  await assert.rejects(folio.add({ text: 'x' }, { ticket: 'TK-999' }));
+  await donate.add({ url: 'https://status.example.com/incident/7' }, { actor });
+  await donate.add({ text: 'Reproduced on iOS too', as: 'comment' }, { actor });
+  const said = await donate.comms();
+  assert.ok(said.some((m) => m.kind === 'comment' && m.text === 'Reproduced on iOS too' && m.path.endsWith('.comment.json')));
+  assert.ok(said.some((m) => m.kind === 'email' && m.path === mail.path));
+  assert.deepEqual(await folio.comms(), []); // the outer folio's conversation is its own
+  for (const f of [folio, donate]) {
+    const v = await f.validate();
+    assert.equal(v.ok, true, JSON.stringify(v.problems));
+  }
+  assert.equal((await validateFolio(fs)).ok, true);
 });
 
 test('links and notes outside tickets; several URLs at once', async () => {
@@ -119,17 +116,14 @@ test('links and notes outside tickets; several URLs at once', async () => {
   assert.equal(n.path, 'notes/2026-11-06-call-pat-about-the-launch-date.txt');
 });
 
-test('tickets carry tags; the older labels field still reads and is replaced on edit', async () => {
+test('folios carry tags: normalised, edited, and gathered by the outer folio', async () => {
   const fs = new MemoryFs();
   const folio = await Folio.init(fs, { title: 'Tags', now });
-  await folio.createTicket({ title: 'A', tags: ['Payments', 'payments', ' safari '] }, { actor });
-  assert.deepEqual((await folio.getTicket('TK-001')).ticket.tags, ['Payments', 'safari']);
-  const { ticket, etag } = await folio.getTicket('TK-001');
-  await fs.write('tickets/TK-001/ticket.json', JSON.stringify({ ...ticket, tags: undefined, labels: ['legacy'] }), { ifMatch: etag });
-  assert.deepEqual((await folio.ticketViews())[0].tags, ['legacy']);
-  const t = await folio.updateTicket('TK-001', { tags: 'legacy, new' }, { actor });
-  assert.deepEqual(t.tags, ['legacy', 'new']);
-  assert.equal(t.labels, undefined);
-  assert.deepEqual((await folio.overview()).tags, ['legacy', 'new']);
-  await assert.rejects(folio.updateTicket('TK-001', { labels: ['x'] }, { actor }), ValidationError);
+  const { folio: a } = await folio.createChild({ title: 'A', tags: ['Payments', 'payments', ' safari '] }, { actor });
+  assert.deepEqual((await a.manifest()).manifest.tags, ['Payments', 'safari']);
+  await a.edit({ tags: 'legacy, new' }, { actor });
+  assert.deepEqual((await a.manifest()).manifest.tags, ['legacy', 'new']);
+  const outer = await Folio.open(fs, { nested: 'detect' });
+  assert.deepEqual((await outer.overview()).tags, ['legacy', 'new']);
+  await assert.rejects(a.edit({ labels: ['x'] }, { actor }), ValidationError);
 });

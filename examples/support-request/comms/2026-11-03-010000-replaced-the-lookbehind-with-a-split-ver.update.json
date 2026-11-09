@@ -1,0 +1,11 @@
+{
+  "at": "2026-11-03T01:00:00.000Z",
+  "kind": "update",
+  "author": {
+    "type": "user",
+    "id": "robin@example.com",
+    "name": "Robin (engineer)"
+  },
+  "via": "example",
+  "text": "Replaced the lookbehind with a split. Verified on Safari 16 and 17. Customer confirmed donations succeed."
+}

@@ -13,17 +13,22 @@ test('there are examples', () => assert.ok(names.length >= 2));
 
 for (const name of names) {
   test(`example "${name}" opens and validates with no errors`, async () => {
-    const folio = await Folio.open(new NodeFs(join(examples, name)));
+    const folio = await Folio.open(new NodeFs(join(examples, name)), { nested: 'detect' });
     const { ok, problems } = await folio.validate();
     assert.equal(ok, true, JSON.stringify(problems, null, 2));
   });
 }
 
-test('website-refresh shows hierarchy, blockers and a feedback-derived ticket', async () => {
-  const folio = await Folio.open(new NodeFs(join(examples, 'website-refresh')));
-  const by = Object.fromEntries((await folio.ticketViews()).map((t) => [t.id, t]));
-  assert.equal(by['TK-004'].readiness.state, 'blocked');
-  assert.deepEqual(by['TK-001'].children.sort(), ['TK-002', 'TK-003', 'TK-004']);
-  assert.ok(by['TK-005'].links.some((l) => l.type === 'feedback'));
+test('website-refresh shows folios inside folios, blockers and readiness', async () => {
+  const folio = await Folio.open(new NodeFs(join(examples, 'website-refresh')), { nested: 'detect' });
+  const kids = Object.fromEntries((await folio.children()).map((c) => [c.title, c]));
+  assert.deepEqual(Object.keys(kids).sort(), ['Launch readiness checklist', 'Migrate help content', 'New sign-in and account page design']);
+  assert.equal(kids['Launch readiness checklist'].readiness.state, 'blocked');
+  assert.equal(kids['Migrate help content'].readiness.state, 'in_progress');
+  const design = await folio.child('new-sign-in-and-account-page-design');
+  const [bug] = await (await Folio.open(design.root, { nested: 'detect' })).children();
+  assert.equal(bug.type, 'bug');
+  assert.ok(bug.relationships.some((r) => r.type === 'discovered_from'));
+  assert.equal(kids['New sign-in and account page design'].readiness.state, 'blocked'); // waits on the bug
   assert.equal((await folio.repositories()).length, 3);
 });

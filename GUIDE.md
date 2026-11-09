@@ -14,8 +14,10 @@ Use a folio to:
 
 - **Collect the request and the correspondence.** Forward or drag client emails in; they are kept as
   received, with their senders and recipients.
-- **Track the work as tickets.** Tickets are the customer-facing units of work: status, priority, owner,
-  tags, relationships (blocked by, parent, duplicate of) and a history of every change.
+- **Break the work down into folios inside the folio.** A bug, a request, a review, a phase: each is a
+  folio of its own (type `ticket`, `bug`, `support`...), with status, priority, owner, tags, blockers, its
+  own conversation and files, its own email address, and a history of every change. There are no separate
+  tickets; a ticket is just a folio of type `ticket`.
 - **Keep the evidence.** Screenshots, documents, meeting notes, links, and summaries of the data and logs
   that were looked at.
 - **Point at the code.** List the repositories involved and the releases, pull requests, issues and
@@ -34,20 +36,20 @@ forwarding, `folio add`, or MCP `add_to_folio`) and the folio files it (SPEC 8.6
 
 | You add | It goes to |
 |---|---|
-| A repository URL, or a link to a release, pull request, issue, commit, branch or file in one | Listed in `folio.json` `repositories`; the release, PR or issue is recorded in that entry's `references` (or on the ticket, if dropped on one) |
+| A repository URL, or a link to a release, pull request, issue, commit, branch or file in one | Listed in `folio.json` `repositories`; the release, PR or issue is recorded in that entry's `references`  |
 | An email | `comms/`, as received (but see "What a folio must not hold") |
 | A data file or log (CSV, TSV, JSON records, JSON Lines, `.log`, spreadsheets, database dumps) | A **summary** in `sources/data/`; the file itself goes to temporary storage (see "Data files and logs") |
 | A comment, a status update, an agent's report | `comms/`, next to the emails: one folder holds the whole conversation, in time order; the extension (`.comment.json`, `.update.json`, `.agent.json`, `.eml`) says what each is |
-| Any other file | `attachments/`, or the ticket's `attachments/`, or the folder it was dropped on |
-| A link | `sources/links/`, or recorded on the ticket |
-| Text (typed, or pasted from a chat, a document, an email) | A new file in `notes/` (or the folder it was added in): `.md` if it is Markdown, `.html` if it is HTML, `.txt` otherwise. On a ticket, a comment |
-| An Asana or Trello JSON export, or `{ "tickets": [...] }` | Tickets: subtasks, dependencies, sections, tags, due dates and comments come along. Importing the same export again adds only what is new |
+| Any other file | `attachments/`, or the folder it was dropped on |
+| A link | `sources/links/` |
+| Text (typed, or pasted from a chat, a document, an email) | A new file in `notes/` (or the folder it was added in): `.md` if it is Markdown, `.html` if it is HTML, `.txt` otherwise. Short text can be posted as a comment instead |
+| An Asana or Trello JSON export, or `{ "folios": [...] }` | Folios inside this one: subtasks (inside their task), dependencies, sections, tags, due dates and comments come along. Importing the same export again adds only what is new |
 
 Every item gets a provenance record in `history/intake/`: when, by whom, through which interface.
 
 **When Folio guesses the type wrong.** Before adding, the Add sheet shows what it detected ("Markdown (.md)",
-"Asana export: 42 tickets") and lets you pick another type: Markdown, HTML, plain text, JSON, import as
-tickets, or keep a file as a file. After adding, change a note's type from the toast, or from **File Type** in
+"Asana export: 42 items") and lets you pick another type: Markdown, HTML, plain text, JSON, import as
+folios, or keep a file as a file. After adding, change a note's type from the toast, or from **File Type** in
 the file's info pane: the file is renamed and its content kept. Agents pass `as` to `add_to_folio`, check with
 `preview_add`, and fix with `change_file_type`.
 
@@ -56,8 +58,8 @@ the file's info pane: the file is renamed and its content kept. Agents pass `as`
 Everything is a folder. Each organisation or team has a **top-level folder**; inside it, folders group work
 and **folios** hold it. A folio is just a folder with a `folio.json`, so any folder can become one (Make
 Folio), and a folio can hold other folios: a phase of a project, a sub-engagement, something with a narrower
-audience. A folio inside a folio is its own record, with its own tickets and sharing; the folio around it does
-not see its files.
+audience, or one piece of the work. A folio inside a folio is its own record, with its own status, conversation and sharing; the folio around it does
+not see its files, but shows it on its board.
 
 Access is given on folders and flows down: share a top-level folder with the team, a client folder with the
 account manager, one folio with a client contact. A folder or folio can be **restricted** so that access from
@@ -73,11 +75,11 @@ purpose and role (`primary`, `secondary`, `reference`). Then reference the speci
 - the **issue** where it was discussed,
 - a **branch** or a **file** at a point in time.
 
-Drop those links on the folio (they are recorded on the repository's entry) or on the ticket they
+Drop those links on the folio (they are recorded on the repository's entry) or on the folio they
 explain. Prefer a release or a commit to a branch: branches move.
 
 Small amounts of code are fine where they explain something: a sample query in `samples/` or in a note, a
-snippet in a ticket comment, a reproduction script attached to a bug. Deliverables such as a static
+snippet in a comment, a reproduction script attached to a bug. Deliverables such as a static
 preview in `artifacts/` are fine too. Copying a codebase, a build or a `node_modules` folder in is not:
 `.git`, `node_modules` and similar folders are skipped when a folder is dropped, and `folio validate`
 warns when a folio holds many source files outside `notes/`, `samples/` and `artifacts/`.
@@ -92,7 +94,7 @@ and other people the client serves are not the folio's business, even when a que
 
 - Refer to them by the **client's identifier** (`donor_id 48213`, `customer CUS-0091`, an order or
   account number). Identifiers are fine; they are what support work needs.
-- Do not paste their names, emails, addresses, phone numbers or dates of birth into tickets, notes or
+- Do not paste their names, emails, addresses, phone numbers or dates of birth into folios, notes or
   comments when an identifier will do.
 - **Sample results from queries are fine**: a few rows that show the problem, a count, an aggregate. Full
   result sets and exports are not; add the file and let the folio summarise it.
@@ -139,13 +141,13 @@ other way (a file edited by hand, a copied folder).
   replaced with a note pointing to the password manager.
 - **Payment card numbers, bank account numbers (IBAN), US Social Security numbers.** Never: there is no
   support task that needs them in a shared record. They are replaced with a masked form
-  (`**** **** **** 6467`) in notes, comments, ticket descriptions and text files. An email that contains
+  (`**** **** **** 6467`) in notes, comments, folio summaries and text files. An email that contains
   one is stored as a text copy without it, and the original email is held temporarily like a data file.
   Known test values (`4242 4242 4242 4242`) are left alone.
 - **Full datasets of people.** Summarised, as above.
 - **Codebases.** Referenced, as above.
 
-When you write a ticket, a note or a comment yourself, apply the same rules: identifiers rather than
+When you write a folio, a note or a comment yourself, apply the same rules: identifiers rather than
 people, a password-manager reference rather than a password, the last four digits rather than a card.
 
 ## For agents

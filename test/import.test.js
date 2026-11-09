@@ -53,87 +53,87 @@ const ASANA = {
   ],
 };
 
-test('detectImport recognises Asana, Trello and Folio ticket lists, and nothing else', () => {
-  assert.deepEqual(detectImport(ASANA), { format: 'asana', label: 'Asana', tickets: 4, subtasks: 2, sections: 1, project: 'Website refresh' });
+test('detectImport recognises Asana, Trello and Folio lists, and nothing else', () => {
+  assert.deepEqual(detectImport(ASANA), { format: 'asana', label: 'Asana', items: 4, subtasks: 2, sections: 1, project: 'Website refresh' });
   assert.equal(detectImport(ASANA.data).format, 'asana'); // a bare array of tasks
   assert.equal(detectImport({ data: ASANA.data[1] }).format, 'asana'); // one task from the API
   assert.equal(detectImport({ cards: [{ id: 'c1', name: 'A', idList: 'l1' }], lists: [{ id: 'l1', name: 'To do' }] }).format, 'trello');
-  assert.equal(detectImport({ tickets: [{ title: 'A' }] }).format, 'folio-tickets');
+  assert.equal(detectImport({ folios: [{ title: 'A' }] }).format, 'folio-list');
+  assert.equal(detectImport({ tickets: [{ title: 'A' }] }).format, 'folio-list'); // the older shape
   assert.equal(detectImport([{ id: 1, email: 'a@b.example' }]), null);
   assert.equal(detectImport({ data: [{ gid: '1', name: 'x' }] }), null); // gid and name alone are not enough
   assert.equal(detectImport({ setting: true }), null);
   assert.equal(detectImport(ASANA, { format: 'trello' }), null);
 });
 
-test('an Asana export becomes tickets: subtasks, sections, tags, priority, dependencies, comments', async () => {
+const kids = async (fs) => (await (await Folio.open(fs, { nested: 'detect' })).descendants());
+
+test('an Asana export becomes folios: subtasks inside their task, sections, tags, priority, dependencies, comments', async () => {
   const { folio, fs } = await make();
   const r = await folio.import(JSON.stringify(ASANA), { actor, via: 'test', name: 'asana.json' });
   assert.equal(r.format, 'asana');
-  assert.deepEqual(r.created, ['TK-001', 'TK-002', 'TK-003', 'TK-004']);
-  assert.match(r.summary, /^Imported 4 tickets from Asana \(Website refresh\)$/);
-  const views = await folio.ticketViews();
-  const by = (title) => views.find((t) => t.title === title);
+  assert.equal(r.created.length, 4);
+  assert.match(r.summary, /^Imported 4 folios from Asana \(Website refresh\)$/);
+  const all = await kids(fs);
+  const by = (title) => all.find((d) => d.manifest.title === title);
   const page = by('Redesign donate page');
-  assert.equal(page.status, 'in_progress'); // from the "In Progress" section
-  assert.equal(page.priority, 'high');
-  assert.equal(page.owner, 'Riley Chen');
-  assert.equal(page.target_date, '2026-12-01');
-  assert.deepEqual(page.tags, ['In Progress', 'Design']);
-  assert.deepEqual(page.external, { source: 'asana', id: '1201', url: 'https://app.asana.com/0/42/1201', created_at: '2026-10-01T10:00:00.000Z' });
-  assert.deepEqual(page.links, [{ type: 'url', label: 'Asana task', url: 'https://app.asana.com/0/42/1201' }]);
-  const approve = by('Approve new brand colours');
-  assert.equal(approve.type, 'review');
-  assert.equal(approve.priority, 'low');
-  assert.equal(approve.tags.length, 0); // "Untitled section" is not a tag
-  assert.deepEqual(page.relationships.find((x) => x.type === 'blocked_by'), { type: 'blocked_by', target: approve.id });
+  assert.equal(page.dir, 'redesign-donate-page');
+  const m = page.manifest;
+  assert.deepEqual([m.type, m.status, m.priority, m.owner, m.target_date], ['ticket', 'active', 'high', 'Riley Chen', '2026-12-01']);
+  assert.deepEqual(m.tags, ['In Progress', 'Design']);
+  assert.deepEqual(m.external, { source: 'asana', id: '1201', url: 'https://app.asana.com/0/42/1201', created_at: '2026-10-01T10:00:00.000Z' });
+  assert.deepEqual(m.links, [{ type: 'url', label: 'Asana task', url: 'https://app.asana.com/0/42/1201' }]);
+  const approve = by('Approve new brand colours').manifest;
+  assert.deepEqual([approve.type, approve.priority, approve.tags], ['review', 'low', undefined]); // "Untitled section" is not a tag
+  assert.deepEqual(m.relationships, [{ type: 'blocked_by', target: approve.id }]);
   const hero = by('Pick hero image');
-  assert.deepEqual(hero.relationships, [{ type: 'parent', target: page.id }]);
-  assert.equal(hero.status, 'closed');
-  assert.equal(hero.resolution, 'completed');
-  assert.deepEqual(page.children.sort(), [hero.id, by('Write alt text').id].sort());
-  // Description: notes scrubbed of card numbers, plus where it came from.
-  const desc = (await fs.read(`tickets/${page.id}/description.md`)).text;
+  assert.equal(hero.dir, 'redesign-donate-page/pick-hero-image'); // inside its task
+  assert.deepEqual([hero.manifest.status, hero.manifest.resolution], ['completed', 'completed']);
+  // README: notes scrubbed of card numbers, plus where it came from.
+  const desc = (await fs.read(`${page.dir}/README.md`)).text;
   assert.ok(!desc.includes('4539 1488'));
   assert.match(desc, /Assignee in Asana: Riley Chen/);
   assert.match(desc, /Estimate: 5/);
   assert.match(desc, /Imported from Asana: https:\/\/app\.asana\.com\/0\/42\/1201/);
-  assert.match((await fs.read(`tickets/${by('Write alt text').id}/description.md`)).text, /Alt text for all images/);
-  // Comments go to comms/, dated when they were written; system stories are not kept.
-  const said = await folio.comms({ ticket: page.id });
-  assert.deepEqual(said.map((m) => [m.kind, m.text, m.at]), [['comment', '(Asana, Pat, 2026-10-02) Waiting on copy from the client', '2026-10-02T09:00:00.000Z']]);
+  assert.match((await fs.read(`${by('Write alt text').dir}/README.md`)).text, /Alt text for all images/);
+  // Comments go to the folio's comms/, dated when they were written; system stories are not kept.
+  const said = await folio.child(page.dir).comms();
+  assert.deepEqual(said.map((x) => [x.kind, x.text, x.at]), [['comment', '(Asana, Pat, 2026-10-02) Waiting on copy from the client', '2026-10-02T09:00:00.000Z']]);
   assert.match(said[0].path, /^comms\/2026-10-02-090000-asana-pat-2026-10-02-waiting-on-copy-fro\.comment\.json$/);
   assert.deepEqual(said[0].imported, { source: 'asana', author: 'Pat', at: '2026-10-02T09:00:00.000Z' });
-  assert.equal(page.revision, 1);
-  // A record of the import, and a valid folio.
+  // The outer folio sees its folios and their readiness; a record of the import; everything valid.
+  const outer = await Folio.open(fs, { nested: 'detect' });
+  const ov = await outer.overview();
+  assert.equal(ov.folios.total, 2); // direct children; subtasks live inside their task
+  assert.deepEqual(ov.ready.map((x) => x.title), ['Approve new brand colours']);
   const report = JSON.parse((await fs.read(r.path)).text);
   assert.equal(report.created.length, 4);
   assert.equal(report.original_name, 'asana.json');
-  assert.deepEqual((await folio.validate()).problems.filter((p) => p.level === 'error'), []);
+  assert.deepEqual((await outer.validate()).problems.filter((p) => p.level === 'error'), []);
 });
 
 test('importing the same export again skips what is already there', async () => {
-  const { folio } = await make();
+  const { folio, fs } = await make();
   await folio.import(ASANA, { actor });
   const more = structuredClone(ASANA);
   more.data.push({ gid: '1299', resource_type: 'task', name: 'New task', completed: false, memberships: [], parent: { gid: '1201' } });
   const again = await folio.import(more, { actor });
-  assert.deepEqual(again.created, ['TK-005']);
+  assert.deepEqual(again.created.map((c) => c.dir), ['redesign-donate-page/new-task']);
   assert.equal(again.duplicates, 4);
-  assert.deepEqual((await folio.getTicket('TK-005')).ticket.relationships, [{ type: 'parent', target: 'TK-001' }]);
-  assert.deepEqual(await folio.import(ASANA, { dryRun: true }), { format: 'asana', label: 'Asana', tickets: 4, subtasks: 2, sections: 1, project: 'Website refresh', would_create: 0, duplicates: 4 });
+  assert.equal((await kids(fs)).length, 5);
+  assert.deepEqual(await folio.import(ASANA, { dryRun: true }), { format: 'asana', label: 'Asana', items: 4, subtasks: 2, sections: 1, project: 'Website refresh', would_create: 0, duplicates: 4 });
 });
 
 test('dependency loops are dropped, not imported', async () => {
-  const { folio } = await make();
+  const { folio, fs } = await make();
   const loop = { data: [
     { gid: 'a', resource_type: 'task', name: 'A', dependencies: [{ gid: 'b' }] },
     { gid: 'b', resource_type: 'task', name: 'B', dependencies: [{ gid: 'a' }] },
   ] };
   const r = await folio.import(loop, { actor });
   assert.equal(r.created.length, 2);
-  const rels = (await folio.listTickets()).flatMap((t) => t.relationships);
-  assert.equal(rels.length, 1);
-  assert.equal((await folio.validate()).ok, true);
+  assert.equal((await kids(fs)).flatMap((d) => d.manifest.relationships || []).length, 1);
+  assert.equal((await (await Folio.open(fs, { nested: 'detect' })).validate()).ok, true);
 });
 
 test('dropping or pasting an export imports it; "as" keeps it as a file instead', async () => {
@@ -142,7 +142,7 @@ test('dropping or pasting an export imports it; "as" keeps it as a file instead'
   assert.equal(classify({ name: 'project.json', type: 'application/json', data: bytes }).kind, 'import');
   const choices = intakeChoices({ text: JSON.stringify(ASANA) });
   assert.equal(choices.as, 'import');
-  assert.match(choices.label, /Asana export: 4 tickets/);
+  assert.match(choices.label, /Asana export: 4 items/);
   assert.deepEqual(choices.choices.map((c) => c.as), ['import', 'json']);
   const [r] = await folio.add({ name: 'project.json', type: 'application/json', data: bytes }, { actor });
   assert.equal(r.kind, 'import');
@@ -150,25 +150,25 @@ test('dropping or pasting an export imports it; "as" keeps it as a file instead'
   // Pasted, again: all duplicates.
   const [p] = await folio.add({ text: JSON.stringify(ASANA) }, { actor });
   assert.equal(p.duplicates, 4);
-  // Kept as a file (it is a list of records, so it is summarised as data).
+  // Kept as a file.
   const [kept] = await folio.add({ name: 'project.json', type: 'application/json', data: bytes, as: 'file' }, { actor });
   assert.equal(kept.kind, 'file');
-  assert.equal((await folio.listTickets()).length, 4);
+  assert.equal((await kids(fs)).length, 4);
   assert.throws(() => classify({ text: '{"a":1}', as: 'import' }), /not an export Folio can import/);
-  void fs;
 });
 
-test('imported on a ticket: the new tickets were discovered from it', async () => {
-  const { folio } = await make();
-  const t = await folio.createTicket({ title: 'Plan the refresh' }, { actor });
-  await folio.add({ text: JSON.stringify({ tickets: [{ title: 'One' }, { title: 'Two', status: 'closed' }] }) }, { actor, ticket: t.id });
-  const two = (await folio.listTickets()).find((x) => x.title === 'Two');
-  assert.equal(two.resolution, 'completed');
-  assert.ok(two.relationships.some((r) => r.type === 'discovered_from' && r.target === t.id));
+test('a Folio list: statuses, custom types, blockers by key, and older ticket statuses', async () => {
+  const { folio, fs } = await make();
+  await folio.import({ folios: [{ id: 'a', title: 'One', type: 'research-spike' }, { id: 'b', title: 'Two', status: 'closed', blocked_by: ['a'] }, { title: 'Three', status: 'review' }] }, { actor });
+  const all = await kids(fs);
+  const get = (t) => all.find((d) => d.manifest.title === t).manifest;
+  assert.equal(get('One').type, 'research-spike');
+  assert.deepEqual([get('Two').status, get('Two').resolution, get('Two').relationships], ['completed', 'completed', [{ type: 'blocked_by', target: get('One').id }]]);
+  assert.equal(get('Three').status, 'review');
 });
 
-test('a Trello board export becomes tickets', async () => {
-  const { folio } = await make();
+test('a Trello board export becomes folios', async () => {
+  const { folio, fs } = await make();
   const board = {
     name: 'Launch board',
     lists: [{ id: 'l1', name: 'Doing' }, { id: 'l2', name: 'Done' }],
@@ -181,18 +181,17 @@ test('a Trello board export becomes tickets', async () => {
   };
   const r = await folio.import(board, { actor });
   assert.match(r.summary, /from Trello \(Launch board\)/);
-  const [a, b] = await folio.ticketViews();
-  assert.equal(a.status, 'in_progress');
-  assert.equal(a.priority, 'urgent');
-  assert.deepEqual(a.tags, ['Doing', 'Copy']);
-  assert.equal(a.target_date, '2026-11-20');
-  assert.equal(b.status, 'closed');
-  assert.equal((await folio.comms({ ticket: a.id }))[0].text, '(Trello, Pat, 2026-11-01) Draft is in the doc');
+  const all = await kids(fs);
+  const a = all.find((d) => d.manifest.title === 'Write launch email');
+  const b = all.find((d) => d.manifest.title === 'Pick a date').manifest;
+  assert.deepEqual([a.manifest.status, a.manifest.priority, a.manifest.tags, a.manifest.target_date], ['active', 'urgent', ['Doing', 'Copy'], '2026-11-20']);
+  assert.equal(b.status, 'completed');
+  assert.equal((await folio.child(a.dir).comms())[0].text, '(Trello, Pat, 2026-11-01) Draft is in the doc');
 });
 
 test('import limits and errors', async () => {
   const { folio } = await make();
   await assert.rejects(folio.import('not json'), ValidationError);
   await assert.rejects(folio.import({ setting: 1 }), /not an export/);
-  await assert.rejects(folio.import({ tickets: Array.from({ length: 501 }, (_, i) => ({ title: `T${i}` })) }), /up to 500/);
+  await assert.rejects(folio.import({ folios: Array.from({ length: 501 }, (_, i) => ({ title: `T${i}` })) }), /up to 500/);
 });

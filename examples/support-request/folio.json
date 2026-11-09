@@ -4,9 +4,9 @@
   "id": "fol-donate",
   "title": "Broken donation form",
   "summary": "The donate button on the campaign page does nothing on Safari. Fix and confirm with the customer.",
-  "status": "active",
+  "status": "completed",
   "created_at": "2026-11-02T15:00:00.000Z",
-  "updated_at": "2026-11-02T17:00:00.000Z",
+  "updated_at": "2026-11-03T02:00:00.000Z",
   "tags": [
     "support",
     "urgent"
@@ -18,8 +18,20 @@
       "url": "https://github.com/example/campaign-site",
       "purpose": "Donation page and form handler",
       "role": "primary",
-      "added_at": "2026-11-02T16:00:00.000Z",
+      "added_at": "2026-11-02T17:00:00.000Z",
       "added_by": "sam@example.com"
     }
-  ]
+  ],
+  "type": "bug",
+  "priority": "urgent",
+  "outcome": "Donations complete on Safari, confirmed by the customer.",
+  "links": [
+    {
+      "type": "source",
+      "label": "Customer's original email",
+      "path": "comms/2026-11-02-forwarded-report.eml"
+    }
+  ],
+  "owner": "robin@example.com",
+  "resolution": "completed"
 }

@@ -5,8 +5,8 @@
   "purpose": "Review the new sign-in flow",
   "review_state": "changes_requested",
   "current_version": "002",
-  "related_tickets": [
-    "TK-002"
+  "related_folios": [
+    "fol-5z2cxd"
   ],
   "versions": [
     {

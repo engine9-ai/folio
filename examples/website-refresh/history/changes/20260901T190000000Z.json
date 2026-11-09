@@ -1,0 +1,39 @@
+{
+  "at": "2026-09-01T19:00:00.000Z",
+  "actor": {
+    "type": "unknown"
+  },
+  "via": "folio-lib",
+  "type": "updated",
+  "changes": {
+    "outcome": {
+      "from": null,
+      "to": "New portal live by 2027-01-30 with sign-in issues resolved."
+    },
+    "key_dates": {
+      "from": null,
+      "to": [
+        {
+          "label": "Launch",
+          "date": "2027-01-30"
+        }
+      ]
+    },
+    "connections": {
+      "from": null,
+      "to": [
+        {
+          "type": "mcp",
+          "alias": "support-data",
+          "purpose": "Read-only customer support context",
+          "access": "read_only"
+        },
+        {
+          "type": "mcp",
+          "alias": "docs",
+          "purpose": "Customer documentation search"
+        }
+      ]
+    }
+  }
+}

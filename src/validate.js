@@ -1,5 +1,4 @@
 import { validateManifest } from './manifest.js';
-import { findCycle, validateTicket } from './tickets.js';
 
 import { findCredentials, prohibitedIn } from './privacy.js';
 import { KEEP_LIMITS } from './data.js';
@@ -12,7 +11,7 @@ const CODE_OK = /^(notes|samples|artifacts|examples)\/|\/samples?\//;
 const CODE_LIMIT = 10;
 
 /**
- * Validate a folio folder: manifest, tickets, relationships, references and
+ * Validate a folio folder: manifest, messages, references and
  * obvious secrets. Never throws for a bad folio; returns problems instead.
  * `ok` is false only when there is at least one error.
  */
@@ -32,61 +31,25 @@ export async function validateFolio(fs) {
   }
   if (!(await fs.exists('README.md'))) add('error', 'missing_readme', 'README.md', 'README.md is required');
 
-  // Tickets
   const files = await fs.list();
-  const ticketIds = [...new Set(files.map((f) => /^tickets\/(TK-\d+)\//.exec(f)?.[1]).filter(Boolean))].sort();
-  const tickets = [];
-  for (const id of ticketIds) {
-    const path = `tickets/${id}/ticket.json`;
-    const cur = await fs.read(path);
-    if (!cur) {
-      add('error', 'ticket_missing_json', path, `${id} has files but no ticket.json`);
-      continue;
-    }
-    let t;
+
+  // Messages in comms/ must be readable.
+  for (const path of files.filter((f) => /^comms\/[^/]+\.(comment|update|agent|chat)\.json$/.test(f))) {
     try {
-      t = JSON.parse(cur.text);
+      const m = JSON.parse((await fs.read(path)).text);
+      if (typeof m.text !== 'string' || Number.isNaN(Date.parse(m.at))) add('warning', 'message_shape', path, 'A message needs "at" (a timestamp) and "text"');
     } catch (e) {
-      add('error', 'ticket_json', path, `Not valid JSON: ${e.message}`);
-      continue;
-    }
-    if (t.id !== id) add('error', 'ticket_id_mismatch', path, `Folder is ${id} but ticket.json says ${t.id}`);
-    problems.push(...validateTicket(t, path));
-    tickets.push(t);
-
-    // Events: history written inside the folder. Edits made outside the application
-    // cannot be attested, so a gap is a warning, never silently "audited".
-    const evFiles = files.filter((f) => f.startsWith(`tickets/${id}/events/`) && f.endsWith('.json'));
-    const revs = [];
-    for (const ef of evFiles) {
-      try {
-        revs.push(JSON.parse((await fs.read(ef)).text).revision);
-      } catch {
-        add('warning', 'event_json', ef, 'Event file is not valid JSON');
-      }
-    }
-    const maxRev = revs.length ? Math.max(...revs) : 0;
-    if (Number.isInteger(t.revision)) {
-      if (maxRev > t.revision) add('warning', 'uncommitted_event', path, `History records revision ${maxRev} but the ticket is at ${t.revision}`);
-      if (t.revision > maxRev) add('warning', 'unattested_change', path, `Ticket is at revision ${t.revision} but history only covers ${maxRev}: changes may have been made outside the application`);
-    }
-
-    // Links to files inside the folio
-    for (const l of t.links || []) {
-      if (l && typeof l.path === 'string' && !(await fs.exists(l.path))) add('error', 'broken_reference', path, `Link target ${l.path} does not exist in this folio`);
+      add('error', 'message_json', path, `Not valid JSON: ${e.message}`);
     }
   }
+  if (files.some((f) => f.startsWith('tickets/'))) add('warning', 'legacy_tickets', 'tickets', 'This folio still has tickets from an earlier version. upgradeLayout() turns each into a folio inside this one.');
 
-  // Relationships
-  const known = new Set(tickets.map((t) => t.id));
-  for (const t of tickets) {
-    for (const r of t.relationships || []) {
-      if (r && r.target && !known.has(r.target)) add('error', 'broken_reference', `tickets/${t.id}/ticket.json`, `${t.id} ${r.type} ${r.target}, which does not exist`);
-    }
-  }
-  for (const type of ['parent', 'blocked_by']) {
-    const cycle = findCycle(tickets, type);
-    if (cycle) add('error', 'relationship_cycle', 'tickets', `${type} loop: ${cycle.join(' → ')}`);
+  // Links in folio.json to files inside the folio
+  try {
+    const m = mf ? JSON.parse(mf.text) : {};
+    for (const l of m.links || []) if (l && typeof l.path === 'string' && !(await fs.exists(l.path))) add('error', 'broken_reference', 'folio.json', `Link target ${l.path} does not exist in this folio`);
+  } catch {
+    /* reported above */
   }
 
   // Content policy (spec 3.7, GUIDE.md): no credentials, card, bank or SSN numbers; no full datasets; no codebases.

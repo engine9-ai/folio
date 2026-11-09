@@ -1,0 +1,26 @@
+{
+  "at": "2026-11-02T19:00:00.000Z",
+  "actor": {
+    "type": "user",
+    "id": "sam@example.com",
+    "name": "Sam (account manager)"
+  },
+  "via": "folio-lib",
+  "type": "updated",
+  "changes": {
+    "repositories": {
+      "from": null,
+      "to": [
+        {
+          "provider": "github",
+          "repository": "example/campaign-site",
+          "url": "https://github.com/example/campaign-site",
+          "purpose": "Donation page and form handler",
+          "role": "primary",
+          "added_at": "2026-11-02T17:00:00.000Z",
+          "added_by": "sam@example.com"
+        }
+      ]
+    }
+  }
+}

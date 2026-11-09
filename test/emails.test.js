@@ -27,21 +27,15 @@ test('parseEmail reads plain, quoted-printable, base64 and multipart bodies', ()
   assert.equal(parseEmail('just some text'), null);
 });
 
-test('folio.emails lists filed emails with text and linking tickets, filterable by ticket', async () => {
+test('folio.emails lists filed emails with text, newest first; each folio sees its own', async () => {
   const folio = await Folio.init(new MemoryFs(), { title: 'Support', now });
-  const t1 = await folio.createTicket({ title: 'Login broken', type: 'support' }, { actor });
-  const t2 = await folio.createTicket({ title: 'Invoice question', type: 'support' }, { actor });
+  const login = await folio.createChild({ title: 'Login broken', type: 'support' }, { actor });
   const mail = (id, subject, date, body) => `From: c@cust.example\r\nSubject: ${subject}\r\nDate: ${date}\r\nMessage-ID: <${id}@cust.example>\r\n\r\n${body}\r\n`;
-  await folio.add({ text: mail('1', 'Cannot log in', 'Mon, 02 Nov 2026 10:00:00 +0000', 'Password reset loops.') }, { ticket: t1.id, actor });
-  await folio.add({ text: mail('2', 'Invoice 42', 'Tue, 03 Nov 2026 10:00:00 +0000', 'Charged twice.') }, { ticket: t2.id, actor });
-  await folio.add({ text: mail('3', 'Loose email', 'Wed, 04 Nov 2026 10:00:00 +0000', 'No ticket.') }, { actor });
-
-  const all = await folio.emails();
-  assert.deepEqual(all.map((e) => e.headers.subject), ['Loose email', 'Invoice 42', 'Cannot log in']);
-  assert.deepEqual(all.find((e) => e.headers.subject === 'Invoice 42').tickets, [t2.id]);
-
-  const one = await folio.emails({ ticket: t1.id });
+  await login.folio.add({ text: mail('1', 'Cannot log in', 'Mon, 02 Nov 2026 10:00:00 +0000', 'Password reset loops.') }, { actor });
+  await folio.add({ text: mail('2', 'Invoice 42', 'Tue, 03 Nov 2026 10:00:00 +0000', 'Charged twice.') }, { actor });
+  await folio.add({ text: mail('3', 'Loose email', 'Wed, 04 Nov 2026 10:00:00 +0000', 'Another.') }, { actor });
+  assert.deepEqual((await folio.emails()).map((e) => e.headers.subject), ['Loose email', 'Invoice 42']);
+  const one = await login.folio.emails();
   assert.equal(one.length, 1);
   assert.equal(one[0].text, 'Password reset loops.');
-  await assert.rejects(() => folio.emails({ ticket: 'TK-999' }));
 });

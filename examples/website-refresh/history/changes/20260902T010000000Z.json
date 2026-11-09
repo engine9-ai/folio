@@ -1,0 +1,47 @@
+{
+  "at": "2026-09-02T01:00:00.000Z",
+  "actor": {
+    "type": "user",
+    "id": "robin@example.com",
+    "name": "Robin (engineer)"
+  },
+  "via": "folio-lib",
+  "type": "updated",
+  "changes": {
+    "repositories": {
+      "from": [
+        {
+          "provider": "github",
+          "repository": "example/customer-portal",
+          "url": "https://github.com/example/customer-portal",
+          "purpose": "Portal application",
+          "role": "primary",
+          "default_branch": "main",
+          "added_at": "2026-09-01T20:00:00.000Z",
+          "added_by": "robin@example.com"
+        }
+      ],
+      "to": [
+        {
+          "provider": "github",
+          "repository": "example/customer-portal",
+          "url": "https://github.com/example/customer-portal",
+          "purpose": "Portal application",
+          "role": "primary",
+          "default_branch": "main",
+          "added_at": "2026-09-01T20:00:00.000Z",
+          "added_by": "robin@example.com"
+        },
+        {
+          "provider": "github",
+          "repository": "example/design-system",
+          "url": "https://github.com/example/design-system",
+          "purpose": "Shared components used by the portal",
+          "role": "secondary",
+          "added_at": "2026-09-01T23:00:00.000Z",
+          "added_by": "robin@example.com"
+        }
+      ]
+    }
+  }
+}
