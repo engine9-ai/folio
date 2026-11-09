@@ -1,5 +1,8 @@
 export { Folio, normalizeTags, ticketTags } from './folio.js';
-export { INTAKE_KINDS, classify, repositoryFromUrl, safeName, slugify, urlsIn } from './intake.js';
+export { INTAKE_AS, INTAKE_KINDS, classify, intakeChoices, repositoryFromUrl, safeName, slugify, urlsIn } from './intake.js';
+export { TEXT_FORMATS, detectTextFormat, htmlToText, textFormatOf, titleOfText } from './text-format.js';
+export { IMPORTERS, IMPORT_FORMATS, MAX_IMPORT_TICKETS, detectImport, parseJsonText, planImport } from './import.js';
+export { ExcludingFs, RESERVED_DIRS, canHoldFolio, nestedFolioDirs } from './nested.js';
 export { decodeEncodedWords, emailAddress, emailAttachments, looksLikeEmail, parseEmail, parseEmailHeaders } from './email.js';
 export { KEEP_LIMITS, SUMMARY_KIND, dataFormat, keepInFolio, parseDelimited, summarizeData } from './data.js';
 export { CREDENTIAL_PATTERNS, PROHIBITED_TYPES, describeRemoved, findCredentials, prohibitedIn, scrubText } from './privacy.js';

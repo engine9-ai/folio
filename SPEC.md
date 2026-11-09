@@ -76,7 +76,7 @@ Tickets may have parent-child relationships, but they are still tickets within a
 
 Each folio has a stable identifier, a human-readable title, and optionally a convenient folder name. Its identifier stays the same when the folder is renamed or moved. The folder name is not a permission boundary or a permanent identifier.
 
-A folio belongs to an account *for purposes of hosted access*. That account relationship is not intrinsic to its portable contents. Importing the folder elsewhere should require an explicit new hosting and access decision.
+A folio sits in a host's folder tree (inside a top-level folder, 3.1.1) *for purposes of hosted access*. Where it sits is not intrinsic to its portable contents. Importing the folder elsewhere should require an explicit new hosting and access decision.
 
 ### 2.2 Human-readable language
 
@@ -143,9 +143,32 @@ folios/
     indexes/
 ```
 
-The outer `folios/` folder is a collection of folio folders. The portable unit is **`customer-portal/` itself**, including all of its descendants. When stored in R2 it may be located under an account-specific prefix, but that hosting prefix is not part of the folio's own identity or contents.
+The outer `folios/` folder is a collection of folio folders. The portable unit is **`customer-portal/` itself**, including all of its descendants (except folios nested inside it, 3.8). Where it sits in a host's folder tree (for example `acme/clients/customer-portal/`) is not part of the folio's own identity or contents.
 
 The directory layout is a convention rather than a rigid empty scaffold. Only `folio.json` and `README.md` are required for a minimal folio. All optional directories can be absent until used. A folio created manually with those two files should be recognisable without a platform-generated database record.
+
+### 3.1.1 Folders all the way down
+
+There is one kind of container: the folder. A folder **is a folio when it holds a `folio.json`**; otherwise it is an ordinary folder that groups other folders and folios. Folios can hold folios.
+
+```text
+acme/                          a top-level folder: one organisation or team (what hosts used to call an account)
+  README.md                    optional: what the folder holds
+  clients/                     a folder grouping work
+    customer-portal/           a folio
+      folio.json
+      tickets/ ...
+      phase-2/                 a folio inside a folio
+        folio.json
+  internal-tools/              a folio directly in the top-level folder
+    folio.json
+```
+
+The rules (3.8 has the detail):
+
+- **A host's accounts are its top-level folders.** There is no separate account object; membership is access granted on the top-level folder (11.2).
+- **Access is granted on folders**, at any depth, and flows down (11.2). A folio needs no permission machinery of its own.
+- **Any folder can become a folio** by gaining a `folio.json`, and keeps its contents and any folios inside it.
 
 ### 3.2 `folio.json`
 
@@ -259,17 +282,26 @@ Personal data is detected by [`@engine9/pii-classifier`](https://github.com/engi
 
 ---
 
+### 3.8 Nested folios
+
+A folio inside a folio is a separate record, as if it sat anywhere else:
+
+- The folio around it does **not** list, search, validate or write the nested folio's files. Its own tools (and the library's `Folio`, given the nested folders or `nested: 'detect'`) see only its own record; the nested folio appears to it as a folder to open.
+- A nested folio can be shared, restricted, moved or exported on its own. Exporting the outer folio includes nested folios only if asked.
+- Folio's own directories (`tickets/`, `sources/`, `notes/`, `history/`, `indexes/`, `feedback/`, `artifacts/`, `decisions/`, `integrations/`, `samples/`) never hold nested folios. A `folio.json` filed under them (inside an uploaded folder, say) is just a file.
+- Making a folder inside a folio into a folio moves its files out of the outer folio's view, not out of the folder tree.
+
 ## 4. Folio lifecycle and organisation
 
 ### 4.1 Create
 
-A person should be able to create a folio by providing only a title and choosing an account. Description, dates, repositories, collaborators, and integrations are optional. The system establishes the portable folder and provides a readable starting point.
+A person should be able to create a folio by providing only a title and choosing a folder (a top-level folder, a folder in it, or another folio). The folio's folder is named after its title. Description, dates, repositories, collaborators, and integrations are optional. The system establishes the portable folder and provides a readable starting point.
 
-A folio can also be introduced by importing an existing folder, including one composed outside the Folio application. The product must recognise valid content rather than insisting that it originated in the application.
+A folio can also be introduced by importing an existing folder, including one composed outside the Folio application. The product must recognise valid content rather than insisting that it originated in the application. An existing folder becomes a folio by gaining a `folio.json` ("Make Folio"); if it already has one, its identity is kept.
 
 ### 4.2 Discover and navigate
 
-People working with many accounts need to find folios by account, title, status, owner, tags, recent activity, relevant ticket, and available context. Lists and search results are *views of folio content*, not independent records that must be maintained manually.
+People working with many organisations need to find folios by folder, title, status, owner, tags, recent activity, relevant ticket, and available context. Lists and search results are *views of folio content*, not independent records that must be maintained manually.
 
 A folio overview should answer: **What is this? What is outstanding? What changed? What needs my attention? Where is the latest deliverable?**
 
@@ -283,13 +315,28 @@ Suggested folio statuses are `draft`, `active`, `waiting`, `completed`, and `arc
 - **Completed:** the agreed outcome is delivered; records remain accessible.
 - **Archived:** retained for history and reference, with conspicuous read-only defaults.
 
-A folio can be reopened. Closing or archiving a folio must not discard ticket histories, feedback, or artifacts. Moving it between accounts is an intentional administrative action involving a fresh permission assessment.
+A folio can be reopened. Closing or archiving a folio must not discard ticket histories, feedback, or artifacts. Moving it between top-level folders is an intentional administrative action involving a fresh permission assessment.
 
 ### 4.4 Duplicate, move, export, and import
 
 Users should be able to duplicate a folio as a starting point, export it, restore it, or move it. The interface must distinguish **copying the same record** from **creating a new folio based on an existing one**. A copied record retains its identity and history; a new folio created from a template gets a new identity and may omit customer-specific evidence.
 
 Import should flag broken internal references, conflicting folio identities, unavailable external connections, suspicious attachments, and missing original evidence. It should not fabricate missing source material or silently apply permissions embedded in the folder.
+
+#### 4.4.1 Importing work from other tools
+
+An export from another tool becomes tickets in a folio. It is added like anything else (8.6): dropped as a file, pasted as text, or handed over by an agent. The library recognises the export by its shape:
+
+| Format | Recognised by | Becomes |
+|---|---|---|
+| Asana | Asana's project JSON export or API task lists: `{ "data": [task, ...] }`, `{ "data": task }` or `[task, ...]`, where tasks have `gid` and `name` and Asana's task fields | One ticket per task and subtask. Subtasks become child tickets (`parent`), `dependencies` become `blocked_by`, sections and tags become ticket tags, a "Priority" custom field the priority, a "Type" field the type, completed tasks are closed (`resolution: completed`), a section like "In progress" or "Blocked" sets the status, `due_on` the target date, the assignee the owner, `notes` (or `html_notes`) the description with other custom fields and the Asana link below it, and comments in `stories` the ticket's history |
+| Trello | A board export: `{ cards, lists, labels, actions }` | One ticket per card: the list and labels become tags (a priority label sets the priority), a "Done" list or completed due date closes it, an archived card is cancelled, comments become history |
+| Folio tickets | `{ "tickets": [{ title, description, type, status, priority, tags, owner, target_date, parent, blocked_by, comments }] }` | One ticket each; `parent` and `blocked_by` refer to other entries by `id` |
+
+- Each imported ticket records where it came from in `external` (`{ source, id, url }`). **Importing the same export again skips tickets already imported**, so an export can be re-imported after more work was added to it.
+- Relationships that would form a loop are left out. Ticket text is scrubbed like any other (3.7). Up to 500 tickets per import.
+- A record of each import (what was created from what) is kept in `history/imports/`. Nothing else from the export is kept in the folio; to keep the export itself, add it as a file instead (`as: "file"`).
+- Imported on a ticket, the new tickets are marked `discovered_from` that ticket.
 
 ---
 
@@ -511,7 +558,9 @@ Whatever adds something to a folio (a drag and drop in the browser, an upload, a
 | Git repository | A GitHub, GitLab or Bitbucket URL (including links to an issue, pull request or file inside one), an `ssh://`/`git@` address, or a URL ending in `.git` | Listed in `folio.json` `repositories` (3.2.1). Already listed: reported, not duplicated. |
 | Email | `.eml` / `message/rfc822`, Outlook `.msg`, or text that starts with an email header block | `sources/email/` (8.1) |
 | Other link | Any other URL (also `.webloc` and `.url` shortcut files) | `sources/links/<date>-<site>-<hash>.json`, holding the URL and who added it |
-| Text | Dropped or pasted text that is not a URL | `notes/<date>-<first line>.md` |
+| Text | Dropped, pasted or typed text that is not a URL, an email or JSON | `notes/<date>-<title>.md`, `.html` or `.txt`: **Markdown, HTML or plain text by what it looks like** (below). The title is the first heading, an HTML `<title>`/`<h1>`, or the first line |
+| An export from another tool | An Asana or Trello JSON export, or `{ "tickets": [...] }`, dropped as a `.json` file or pasted | Tickets (4.4.1) |
+| Other JSON | Pasted JSON that is not an export | Filed as a dropped `.json` file would be: a list of records is data, anything else a file |
 | Data file or log | CSV, TSV, JSON records, JSON Lines, logs, spreadsheets, dumps (8.4.1) | A summary in `sources/data/`, the original in temporary storage; small files with no personal data are filed as ordinary files |
 | Refused | Key and credential files (`.env`, `.pem`, `id_rsa`, `.kdbx`, …) | Not stored (3.7) |
 | File | Anything else | `sources/uploads/` (8.4), keeping a dropped folder's structure; a name already in use gets a number ("report 2.pdf"). Text files have prohibited content (3.7) removed; images and other binary files keep their bytes |
@@ -520,6 +569,13 @@ Where it was dropped refines this:
 
 - **On a ticket:** files go to `tickets/<id>/attachments/`; emails still go to `sources/email/`; the ticket gets a link to each (`links`, with a `linked` event in its history). A link is recorded on the ticket instead of `sources/links/`. Text becomes a comment.
 - **On a folder:** files go into that folder (a folder inside a ticket means that ticket's attachments). Emails, repositories and links still go to their own places.
+
+**Text formats.** Text is HTML when it is a document (`<!doctype html>`, `<html>`) or mostly markup (starts with a tag and has several); Markdown when it has two or more signs of it (a heading, code fence, table or task list counts double; links, emphasis, lists, quotes, inline code and rules count once; three or more bullets count too); otherwise plain text. Detection is a guess, so:
+
+- **Before saving**, an interface shows what was detected and offers the other types. An item may carry `as` to choose: `markdown`, `html`, `text` (a note of that type, or a text file given that extension), `json`, `import`, `comment` (on a ticket), `file` (keep a dropped file as a file, never import it). `name` names a text note's file. `folio.choices(item, { ticket, folder })` returns the detected kind and type, where it would go, and the other choices.
+- **After saving**, `folio.setTextFormat(path, format)` changes a `.md`, `.html` or `.txt` file to another of those types: the file is renamed, its content kept, and tickets linking to it follow.
+
+Text added on a ticket becomes a comment unless a file type is chosen, in which case it is saved as an attachment. Text added in a folder becomes a file in that folder.
 
 Inside a dropped folder, `.git`, `node_modules` and similar tooling folders are skipped. Text added as a note or comment, and ticket titles and descriptions, have prohibited content (3.7) removed. A link to a release, pull request, issue, commit, branch or file of a repository is recorded in that repository's `references` (3.2.1), or on the ticket it was dropped on.
 
@@ -573,32 +629,40 @@ Emails, form submissions, Slack messages, uploaded files, repository content, an
 
 ---
 
-## 11. Identity, accounts, permissions, and sharing
+## 11. Identity, folders, permissions, and sharing
 
 ### 11.1 Identity model
 
 The identity ecosystem is **Delegate** for human authentication (reached through `@engine9/core`, which owns the session and roles), **Core** for people and membership infrastructure, and **Core Agent Credentials** for authorising external agents. These capabilities serve the product; they are not part of the portable folio format.
 
-A folio is always hosted within an account context, but account membership is managed by the platform. The directory must never contain live permission grants as its authority. **In this version a folio holds no permission information at all**: accounts, members, folio access levels, restricted folios and agent grants live only in the hosting service (`folio-server`'s D1 control plane). Copying or exporting a folio carries none of them.
+A folio is always hosted inside a top-level folder, which is what a host calls an account: there is no separate account object (3.1.1). The directory must never contain live permission grants as its authority. **In this version a folder holds no permission information at all**: access grants, restricted folders and agent grants live only in the hosting service (`folio-server`'s D1 control plane). Copying or exporting a folder or folio carries none of them.
 
 ### 11.2 Roles and access
+
+Access is granted to a person on a **folder path**: a top-level folder, a folder inside it, a folio, or a folio inside a folio. It reaches everything inside that folder.
+
+- **Levels:** none < read < write < manage. Read opens; write edits folio content; manage also shares the folder and creates folders and folios in it.
+- **The nearest grant wins.** A grant on a folio overrides one on its folder, in either direction; a grant of `none` keeps out someone the folders above would let in.
+- **A restricted folder stops inheritance**: access granted above it does not reach it or anything inside it. Only people granted on it (or deeper) get in. Restricting something keeps the person restricting it in.
+- **Membership of an organisation** is access on its top-level folder: managers (manage) and members (write) there reach everything in it unless something is restricted.
+- **Platform administrators** create top-level folders and decide who has access to them, without content access from that role.
 
 Suggested role capabilities:
 
 | Role | Typical access |
 |---|---|
-| Account administrator | Manage account membership, access to folios, and eligible connections. |
+| Folder manager (manage on a top-level folder: an organisation's administrator) | Manage who has access to the folder and everything in it, create folders and folios, and eligible connections. |
 | Folio manager | Manage the folio, its tickets, forms, artifacts, invitations, and contributors. |
 | Contributor | Read and update authorised folio content and tickets. |
 | Viewer | Read selected folio content and artifacts without altering them. |
 | Reviewer | Access selected preview/form resources and provide feedback, without general folio access. |
 | Connected agent | Carry out only approved operations for the authorising person and accessible folios. |
 
-Roles are examples of user-facing capabilities, not instructions to add a second independent identity system. Organisations may refine them, but permissions should be predictable, explainable, and tested at account and folio boundaries.
+Roles are examples of user-facing capabilities, not instructions to add a second independent identity system. Organisations may refine them, but permissions should be predictable, explainable (the hosting service shows, for each person, the folder their access comes from), and tested at folder and folio boundaries.
 
-### 11.3 Folio-level restrictions
+### 11.3 Folder and folio restrictions
 
-An account member may have no access to a particular folio, read-only access, or editing access. A broad account role does not automatically override explicit folio restrictions unless an administrative policy permits it. Sensitive folios should support narrower participant lists.
+A member of a top-level folder may have no access to a particular folder or folio, read-only access, or editing access, by a grant on that folder or folio. Broad access higher up does not override an explicit grant or a restriction lower down. Sensitive folders and folios support narrower participant lists by being restricted.
 
 Review links, form invitations, and preview access do not by themselves permit access to correspondence, source files, other artifacts, or other accounts.
 
@@ -606,11 +670,11 @@ Review links, form invitations, and preview access do not by themselves permit a
 
 A folio manager should be able to share selected content, request feedback, revoke invitations, and inspect relevant access history. Revocation should apply to subsequent hosted access. Already-exported copies or downloaded files cannot be technically revoked; the product must make that limitation clear.
 
-Moving or importing a folder requires new account-scoped authorisation. Host-specific permission state should not be copied along as a portable grant.
+Moving or importing a folder requires new authorisation where it lands. Host-specific permission state should not be copied along as a portable grant.
 
 ### 11.5 Privacy and retention
 
-Sources and feedback may contain personal or confidential information. Account administrators need understandable retention, archive, removal, and export policies. Removing access should not be confused with deleting evidence. Permanent deletion may conflict with recordkeeping obligations and should be a deliberate action.
+Sources and feedback may contain personal or confidential information. Folder managers need understandable retention, archive, removal, and export policies. Removing access should not be confused with deleting evidence. Permanent deletion may conflict with recordkeeping obligations and should be a deliberate action.
 
 The product should avoid broadly sharing full source evidence when a narrow summary, artifact, or response is sufficient for a reviewer.
 
@@ -635,7 +699,7 @@ All substantive content must be inside the folio folder, including:
 
 ### 12.2 What the hosted control plane may own
 
-D1 and related hosted identity or credential facilities may hold only information required to **find, protect, and connect** folio folders, including account membership, folio location, account/folio access rules, invitation status, agent OAuth grants, and integration credential references.
+D1 and related hosted identity or credential facilities may hold only information required to **find, protect, and connect** folders, including which folders are folios (an id → path index that can be rebuilt from each `folio.json`), access grants on folder paths, restricted folders, invitation status, agent OAuth grants, and integration credential references.
 
 It should not be the authoritative store for ticket content, ticket relationships, feedback responses, artifact descriptions, decisions, documents, or email bodies. Nor should the product require a content database to reconstruct a valid folio.
 
@@ -663,19 +727,19 @@ The interface should be approachable to an account manager while remaining usefu
 
 ### 13.1 Top-level navigation
 
-Recommended labels are **Accounts**, **Folios**, and **Connections**. Within a folio, the main sections are **Overview**, **Tickets**, **Feedback**, **Artifacts**, **Files**, **Sources**, and **Decisions**. Some smaller sections can be grouped as needed, but the terminology should stay consistent.
+Recommended labels are **Folders**, **Folios**, and **Connections**. Within a folio, the main sections are **Overview**, **Tickets**, **Feedback**, **Artifacts**, **Files**, **Sources**, and **Decisions**. Some smaller sections can be grouped as needed, but the terminology should stay consistent.
 
 ### 13.2 Folio overview
 
 The first screen should communicate:
 
-- Folio title, purpose, status, important dates, and account.
+- Folio title, purpose, status, important dates, and where it is (its folder path).
 - Open tickets, blocked tickets, and work ready to start.
 - Items awaiting customer response or review.
 - Latest artifacts and currently shared previews.
 - Recent significant activity and decisions.
 - Relevant repositories and connections, including unavailable ones.
-- Quick actions such as New Ticket, Add Evidence, Request Feedback, Upload Artifact, and Share Preview.
+- Quick actions such as New Ticket, Add (paste, type or drop), Request Feedback, Upload Artifact, Share Preview, and, for managers, New Folio Inside.
 
 For a small folio, this screen should feel simple rather than empty. For a larger folio, it should offer a concise route to the detail without becoming a dashboard requiring constant maintenance.
 
@@ -721,7 +785,7 @@ A customer reviews a new website preview and submits a form noting a mobile layo
 
 ### 14.5 Importing a folio elsewhere
 
-A completed folio is exported and later imported into another authorised account or storage environment. Tickets, relationships, notes, decisions, feedback, and artifacts remain intact. The receiving administrator grants new access and reconnects any necessary external services. No old access credential is silently transferred.
+A completed folio is exported and later imported into another authorised folder or storage environment. Tickets, relationships, notes, decisions, feedback, and artifacts remain intact. The receiving administrator grants new access and reconnects any necessary external services. No old access credential is silently transferred.
 
 ---
 
@@ -801,11 +865,11 @@ A successful folio stands on its own. The hosted application provides a pleasant
 ### In version 1
 
 - The portable folio format and the `@engine9/folio` library (validation, tickets, relationships, readiness, repository listing, import checks, search), with examples.
-- Hosting at `folio.engine9.ai` on Cloudflare: folios in R2, a D1 control plane for accounts, folio location and access rules.
-- Sign-in through Delegate via `@engine9/core`; account and folio permissions; conflict-safe editing.
+- Hosting at `folio.engine9.ai` on Cloudflare: a folder tree in R2 (top-level folders, folders, folios, folios in folios), a D1 control plane for the folio index and access on folders.
+- Sign-in through Delegate via `@engine9/core`; permissions on any folder, subfolder or folio, inherited downwards; conflict-safe editing.
 - An MCP endpoint over the same folio content, with scoped, revocable agent access.
 - A browser workspace laid out like a Finder window: folio list, the folio's folder, tickets (with readiness and tags), repositories, files, sharing.
-- Drag and drop (and upload) into a folio, filed by the library's routing rule (8.6).
+- Drag and drop, paste and upload into a folio, filed by the library's routing rule (8.6): text saved as Markdown, HTML or plain text by detection, with the type chosen before or changed after; Asana, Trello and Folio-ticket exports imported as tickets (4.4.1).
 - Email forwarding to a folio's intake address (8.1).
 
 ### Deferred, and what will be needed

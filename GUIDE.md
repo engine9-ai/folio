@@ -29,8 +29,8 @@ points to those systems instead of copying them.
 
 ## Where things go
 
-You rarely choose a path yourself: add an item (drag and drop, **Add to Folio**, email forwarding, `folio
-add`, or MCP `add_to_folio`) and the folio files it (SPEC 8.6).
+You rarely choose a path yourself: add an item (drag and drop, paste with ⌘V or **Add to Folio**, email
+forwarding, `folio add`, or MCP `add_to_folio`) and the folio files it (SPEC 8.6).
 
 | You add | It goes to |
 |---|---|
@@ -39,9 +39,28 @@ add`, or MCP `add_to_folio`) and the folio files it (SPEC 8.6).
 | A data file or log (CSV, TSV, JSON records, JSON Lines, `.log`, spreadsheets, database dumps) | A **summary** in `sources/data/`; the file itself goes to temporary storage (see "Data files and logs") |
 | Any other file | `sources/uploads/`, or the ticket's `attachments/`, or the folder it was dropped on |
 | A link | `sources/links/`, or recorded on the ticket |
-| Text | `notes/`, or a comment on the ticket |
+| Text (typed, or pasted from a chat, a document, an email) | A new file in `notes/` (or the folder it was added in): `.md` if it is Markdown, `.html` if it is HTML, `.txt` otherwise. On a ticket, a comment |
+| An Asana or Trello JSON export, or `{ "tickets": [...] }` | Tickets: subtasks, dependencies, sections, tags, due dates and comments come along. Importing the same export again adds only what is new |
 
 Every item gets a provenance record in `history/intake/`: when, by whom, through which interface.
+
+**When Folio guesses the type wrong.** Before adding, the Add sheet shows what it detected ("Markdown (.md)",
+"Asana export: 42 tickets") and lets you pick another type: Markdown, HTML, plain text, JSON, import as
+tickets, or keep a file as a file. After adding, change a note's type from the toast, or from **File Type** in
+the file's info pane: the file is renamed and its content kept. Agents pass `as` to `add_to_folio`, check with
+`preview_add`, and fix with `change_file_type`.
+
+## Folders and folios
+
+Everything is a folder. Each organisation or team has a **top-level folder**; inside it, folders group work
+and **folios** hold it. A folio is just a folder with a `folio.json`, so any folder can become one (Make
+Folio), and a folio can hold other folios: a phase of a project, a sub-engagement, something with a narrower
+audience. A folio inside a folio is its own record, with its own tickets and sharing; the folio around it does
+not see its files.
+
+Access is given on folders and flows down: share a top-level folder with the team, a client folder with the
+account manager, one folio with a client contact. A folder or folio can be **restricted** so that access from
+above stops there. None of this is stored in the folders themselves.
 
 ## Code
 

@@ -114,7 +114,7 @@ test('links and notes outside tickets; several URLs at once', async () => {
   assert.equal(JSON.parse((await fs.read(r[0].path)).text).url, 'https://example.com/a');
   assert.equal((await folio.add({ url: 'https://example.com/a' }, { actor }))[0].duplicate, true);
   const [n] = await folio.add({ text: 'Call Pat about the launch date\nmore' }, { actor });
-  assert.equal(n.path, 'notes/2026-11-06-call-pat-about-the-launch-date.md');
+  assert.equal(n.path, 'notes/2026-11-06-call-pat-about-the-launch-date.txt');
 });
 
 test('tickets carry tags; the older labels field still reads and is replaced on edit', async () => {

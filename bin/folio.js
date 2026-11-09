@@ -10,11 +10,15 @@ const USAGE = `folio: work with folio folders
   folio validate <dir>
   folio overview <dir>
   folio ready <dir>
-  folio add <dir> <file | folder | url | "text"> ... [--ticket TK-001] [--folder notes]
+  folio add <dir> <file | folder | url | "text"> ... [--ticket TK-001] [--folder notes] [--as markdown|html|text|json|import|file]
       files the item where it belongs: repo URL -> repositories, .eml -> sources/email,
       other links -> sources/links, text -> notes, files -> sources/uploads (or the ticket),
       data files and logs -> a summary in sources/data, the file itself held in ~/.folio/hold
       (or FOLIO_HOLD_DIR, or --hold-dir) for 30 days. See GUIDE.md for what folios must not hold.
+      Text is saved as .md, .html or .txt by what it looks like; --as picks the type instead.
+      An Asana or Trello JSON export (or { "tickets": [...] }) becomes tickets.
+  folio import <dir> <export.json> [--format asana|trello|folio-tickets] [--dry-run]
+  folio retype <dir> <path> <markdown|html|text>     change a note's file type
   folio ticket new <dir> --title "..." [--type bug] [--priority high] [--tags "a, b"] [--description "..."]
   folio ticket list <dir>
   folio ticket show <dir> <TK-001>
@@ -62,7 +66,7 @@ async function main() {
   const [dir, ...tail] = grouped ? rest.slice(1) : rest;
   const args = grouped ? [sub0, ...tail] : tail;
   if (!dir) throw new Error(`usage: folio ${cmd}${grouped ? ' <subcommand>' : ''} <dir> ...`);
-  const folio = await Folio.open(new NodeFs(dir));
+  const folio = await Folio.open(new NodeFs(dir), { nested: 'detect' });
 
   if (cmd === 'validate') {
     const { ok, problems } = await folio.validate();
@@ -80,6 +84,7 @@ async function main() {
 
   if (cmd === 'add') {
     if (!args.length) throw new Error('usage: folio add <dir> <file | folder | url | "text"> ...');
+    const as = flags.as ? String(flags.as) : undefined;
     const opts = { actor, via, ...(flags.ticket ? { ticket: String(flags.ticket) } : {}), ...(flags.folder ? { folder: String(flags.folder) } : {}) };
     const hold = new LocalHold({ dir: flags['hold-dir'] && String(flags['hold-dir']), folioId: (await folio.manifest()).manifest.id });
     await hold.sweep();
@@ -92,15 +97,25 @@ async function main() {
         return;
       }
       if (st.isDirectory()) for (const e of await readdir(abs)) await walk(join(abs, e), root);
-      else items.push({ name: basename(abs), path: root ? relative(root, abs) : undefined, data: new Uint8Array(await readFile(abs)) });
+      else items.push({ name: basename(abs), path: root ? relative(root, abs) : undefined, data: new Uint8Array(await readFile(abs)), as });
     };
     for (const a of args) {
       const st = await stat(a).catch(() => null);
-      if (!st) items.push({ text: a });
+      if (!st) items.push({ text: a, as });
       else await walk(a, st.isDirectory() ? join(a, '..') : null);
     }
     for (const item of items) for (const r of await folio.add(item, opts)) console.log(`${r.kind.padEnd(10)} ${r.summary}`);
     return;
+  }
+
+  if (cmd === 'import') {
+    if (!args[0]) throw new Error('usage: folio import <dir> <export.json>');
+    const r = await folio.import(new Uint8Array(await readFile(args[0])), { format: flags.format && String(flags.format), name: basename(args[0]), actor, via, dryRun: Boolean(flags['dry-run']) });
+    return out(flags['dry-run'] ? r : r.summary);
+  }
+  if (cmd === 'retype') {
+    if (!args[1]) throw new Error('usage: folio retype <dir> <path> <markdown|html|text>');
+    return out((await folio.setTextFormat(args[0], args[1], { actor, via })).summary);
   }
 
   if (cmd === 'repo') {

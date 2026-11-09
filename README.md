@@ -18,6 +18,9 @@ node bin/folio.js repo add ./my-folio engine9-ai/folio-server --purpose "Server"
 node bin/folio.js ticket new ./my-folio --title "Donate button spins" --type bug --priority urgent
 node bin/folio.js ticket relate ./my-folio TK-002 blocked_by TK-001
 node bin/folio.js add ./my-folio report.eml https://github.com/a/b screenshot.png   # filed where each belongs
+node bin/folio.js add ./my-folio "# Kickoff notes ..."    # text: saved as .md, .html or .txt by what it is (--as to choose)
+node bin/folio.js import ./my-folio asana-export.json     # Asana / Trello / { tickets: [...] } -> tickets
+node bin/folio.js retype ./my-folio notes/2026-11-09-kickoff.txt markdown
 node bin/folio.js ready ./my-folio        # what could someone start now?
 node bin/folio.js validate ./my-folio     # broken references, loops, secrets, unattested edits
 ```
@@ -39,6 +42,16 @@ await folio.add({ name: 'report.eml', data: emlBytes }, { actor });             
 await folio.add({ name: 'screenshot.png', data: pngBytes }, { actor, ticket: 'TK-002' }); // ticket attachment, linked
 await folio.add({ name: 'donors.csv', data: csvBytes }, { actor });                       // summary in sources/data/, original to `hold`
 await folio.emails({ ticket: 'TK-002' }); // filed emails linked from TK-002: headers, readable body text, linking tickets
+
+// Pasted text: Markdown, HTML or plain text by detection; `as` overrides; the type can be changed after.
+folio.choices({ text: pasted });                        // { kind, as: 'markdown', label, where, choices: [...] }
+const [note] = await folio.add({ text: pasted }, { actor });                  // notes/2026-11-09-kickoff.md
+await folio.setTextFormat(note.path, 'html', { actor });                      // renamed; tickets linking to it follow
+// Exports from other tools become tickets; importing again skips what is already there.
+await folio.import(asanaJson, { actor });                                     // or folio.add({ name: 'x.json', data })
+
+// Folders all the way down: a folio inside a folio is hidden from the outer one.
+const outer = await Folio.open(new NodeFs('./acme/site'), { nested: 'detect' });
 ```
 
 Behaviours worth knowing:
@@ -52,6 +65,9 @@ Behaviours worth knowing:
 - **Intake routing lives here.** `folio.add(item, { ticket, folder })` recognises repositories, emails, links, text and files and puts each in the right place, with provenance under `history/intake/`. Hosts (the browser, email forwarding, MCP, the CLI) only hand items over.
 - **Binary files.** `write(path, data)` takes a string or a `Uint8Array`; stores may add `readBytes(path)`. Ticket and manifest files stay JSON text.
 - **Tickets carry tags** (`tags` in `ticket.json`); the older `labels` field still reads.
+- **Text formats.** `detectTextFormat(text)` says Markdown, HTML or plain text (with reasons); `titleOfText` and `htmlToText` are exported. Intake items may carry `as` (`markdown`, `html`, `text`, `json`, `import`, `comment`, `file`) and `name`.
+- **Imports.** `detectImport(json)` recognises Asana, Trello and `{ tickets }` exports; `folio.import()` creates the tickets in one pass (ids claimed first, so subtasks and dependencies point at the right tickets), records `external: { source, id, url }` on each, and writes a report to `history/imports/`.
+- **Folders all the way down.** A folder with a `folio.json` is a folio; folios can hold folios. `Folio.open(fs, { nested })` takes the nested folios' folders (or `'detect'`) and hides them through `ExcludingFs`; `nestedFolioDirs(fs)` finds them. Folio's own directories (`RESERVED_DIRS`) never hold nested folios.
 - **No permissions in a folio.** Access rules belong to the hosting service.
 - `NodeFs` overwrites are check-then-write; protect against other processes writing the same folder yourself.
 

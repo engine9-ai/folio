@@ -5,6 +5,8 @@ import { dataFormat, keepInFolio, summarizeData } from './data.js';
 import { describeRemoved, prohibitedIn, scrubText } from './privacy.js';
 import { parseGithubUrl, repositoryKey } from './repositories.js';
 import { isTicketId } from './tickets.js';
+import { TEXT_FORMATS, detectTextFormat, textFormatOf, titleOfText } from './text-format.js';
+import { detectImport, parseJsonText } from './import.js';
 
 /**
  * Intake: decide where something added to a folio belongs, then put it there.
@@ -40,7 +42,17 @@ import { isTicketId } from './tickets.js';
  * their own places, wherever they were dropped.
  */
 
-export const INTAKE_KINDS = ['repository', 'email', 'link', 'note', 'data', 'file'];
+export const INTAKE_KINDS = ['repository', 'email', 'link', 'note', 'data', 'file', 'import'];
+
+/**
+ * What an item may be saved as, overriding detection (item.as). 'auto' (or nothing) lets Folio decide.
+ *   markdown | html | text   text saved as a .md, .html or .txt file (a file of those kinds gets that extension)
+ *   json                     text saved as a .json file (filed like a dropped .json: data or an ordinary file)
+ *   import                   an export from another tool turned into tickets (Asana, Trello, Folio tickets)
+ *   comment                  text added to the ticket as a comment (only with a ticket)
+ *   file                     a dropped file kept as a file, never imported
+ */
+export const INTAKE_AS = ['auto', 'markdown', 'html', 'text', 'json', 'import', 'comment', 'file'];
 
 /** File names that are credentials by nature. They are refused, never stored. */
 const CREDENTIAL_FILE = /(^|\/)(\.env(\.(?!example$|sample$|template$)[^/]+)?|\.netrc|\.pgpass|\.npmrc|id_(rsa|dsa|ecdsa|ed25519)|[^/]+\.(pem|key|p12|pfx|jks|keystore|kdbx|ppk|asc|gpg|ovpn|mobileprovision))$/i;
@@ -159,16 +171,35 @@ export function classify(item = {}) {
     const repository = repositoryFromUrl(url);
     return repository ? { kind: 'repository', url: url.trim(), repository } : { kind: 'link', url: url.trim() };
   };
+  const as = item.as && item.as !== 'auto' ? String(item.as) : null;
+  if (as && !INTAKE_AS.includes(as)) throw new ValidationError(`Unknown type “${as}”. Use one of ${INTAKE_AS.join(', ')}.`);
   if (item.url) return viaUrl(item.url);
   const bytes = toBytes(item.data);
   if (!bytes) {
     const text = String(item.text ?? '');
     if (!text.trim()) throw new ValidationError('Nothing to add');
-    const urls = urlsIn(text);
-    if (urls.length === 1) return viaUrl(urls[0]);
-    if (urls.length > 1) return { kind: 'urls', urls };
-    if (looksLikeEmail(text)) return { kind: 'email', format: 'eml' };
-    return { kind: 'note' };
+    if (!as) {
+      const urls = urlsIn(text);
+      if (urls.length === 1) return viaUrl(urls[0]);
+      if (urls.length > 1) return { kind: 'urls', urls };
+      if (looksLikeEmail(text)) return { kind: 'email', format: 'eml' };
+    }
+    if (!as || as === 'import' || as === 'json') {
+      const doc = parseJsonText(text);
+      if (doc === undefined && (as === 'import' || as === 'json')) throw new ValidationError('That is not valid JSON');
+      if (doc !== undefined) {
+        const found = as === 'json' ? null : detectImport(doc, { format: item.import_format });
+        if (found) return { kind: 'import', ...found };
+        if (as === 'import') throw new ValidationError(notImportable());
+        const jsonBytes = enc.encode(text);
+        return { kind: dataFormat({ name: 'pasted.json', type: 'application/json', bytes: jsonBytes }) ? 'data' : 'file', format: 'json', pasted: true };
+      }
+    }
+    if (as === 'file') throw new ValidationError('Text is saved as a note; choose markdown, html, text or json');
+    if (as === 'comment') return { kind: 'note', format: detectTextFormat(text).format, comment: true };
+    if (TEXT_FORMATS[as]) return { kind: 'note', format: as, chosen: true };
+    const d = detectTextFormat(text);
+    return { kind: 'note', format: d.format, reasons: d.reasons };
   }
   const name = item.name || '';
   const ext = extOf(name);
@@ -182,19 +213,82 @@ export function classify(item = {}) {
     if (url) return viaUrl(url);
   }
   if ((!ext || ext === 'txt') && looksLikeEmail(peek(bytes))) return { kind: 'email', format: 'eml' };
-  const data = dataFormat({ name, type, bytes });
+  if (as === 'import' || (!as && (ext === 'json' || type === 'application/json'))) {
+    const doc = bytes.length <= 30 * 1024 * 1024 ? parseJsonText(bytes) : undefined;
+    const found = doc === undefined ? null : detectImport(doc, { format: item.import_format });
+    if (found) return { kind: 'import', ...found };
+    if (as === 'import') throw new ValidationError(doc === undefined ? `${name || 'That file'} is not valid JSON` : notImportable());
+  }
+  const retype = TEXT_FORMATS[as] ? { retype: as } : {};
+  const data = as === 'file' || retype.retype ? null : dataFormat({ name, type, bytes });
   if (data) return { kind: 'data', format: data.format };
-  return { kind: 'file' };
+  return { kind: 'file', ...retype };
+}
+
+const notImportable = () => 'This is not an export Folio can import. Folio imports Asana and Trello JSON exports, and { "tickets": [...] }.';
+
+/**
+ * What Folio would do with an item and what else it could be saved as, for a "Save as" choice in an interface.
+ * Returns { kind, ..., label, where, as, choices: [{ as, label }] }. Pure: reads only the item and the context.
+ */
+export function intakeChoices(item = {}, { ticket, folder } = {}) {
+  const c = classify(item);
+  const text = item.data === undefined || item.data === null;
+  const fmtLabel = (f) => `${TEXT_FORMATS[f].label} (.${TEXT_FORMATS[f].ext})`;
+  const noteWhere = ticket ? `an attachment of ${ticket}` : folder ? `a new file in ${folder}/` : 'a new file in notes/';
+  const choices = [];
+  let as = item.as && item.as !== 'auto' ? item.as : 'auto';
+  let label;
+  let where;
+  const textChoices = () => {
+    if (ticket) choices.push({ as: 'comment', label: `Comment on ${ticket}` });
+    for (const f of Object.keys(TEXT_FORMATS)) choices.push({ as: f, label: fmtLabel(f) });
+  };
+  if (c.kind === 'import') {
+    label = `${c.label} export: ${c.tickets} ${c.tickets === 1 ? 'ticket' : 'tickets'}`;
+    where = `tickets/ (${c.tickets} new ${c.tickets === 1 ? 'ticket' : 'tickets'}, skipping any already imported)`;
+    if (as === 'auto') as = 'import';
+    choices.push({ as: 'import', label: `Import as tickets (${c.label})` }, { as: text ? 'json' : 'file', label: 'Keep as a JSON file' });
+  } else if (c.kind === 'note') {
+    const f = c.format;
+    if (c.comment || (ticket && as === 'auto')) {
+      label = 'Comment';
+      where = `a comment on ${ticket}`;
+      if (as === 'auto') as = 'comment';
+    } else {
+      label = `${fmtLabel(f)}${c.chosen ? '' : ' (detected)'}`;
+      where = noteWhere;
+      if (as === 'auto') as = f;
+    }
+    textChoices();
+    if (parseJsonText(String(item.text ?? '')) !== undefined) choices.push({ as: 'json', label: 'JSON (.json)' });
+  } else if (text && (c.kind === 'data' || c.kind === 'file') && c.pasted) {
+    label = c.kind === 'data' ? 'JSON records (summarised as data)' : 'JSON (.json)';
+    where = c.kind === 'data' ? 'a summary in sources/data/' : ticket ? `an attachment of ${ticket}` : folder ? `a new file in ${folder}/` : 'sources/uploads/';
+    if (as === 'auto') as = 'json';
+    choices.push({ as: 'json', label: 'JSON (.json)' });
+    textChoices();
+  } else {
+    const kinds = { repository: 'Repository link', link: 'Web link', urls: 'Links', email: 'Email', data: 'Data file or log', file: 'File', refused: 'Refused', skipped: 'Skipped' };
+    const places = { repository: 'folio.json repositories', link: ticket ? `a link on ${ticket}` : 'sources/links/', urls: 'one entry per link', email: 'sources/email/', data: 'a summary in sources/data/', file: ticket ? `${ticket} attachments` : folder ? `${folder}/` : 'sources/uploads/', refused: 'not stored', skipped: 'not stored' };
+    label = kinds[c.kind] || c.kind;
+    where = places[c.kind] || '';
+    if (text && ['repository', 'link', 'urls', 'email'].includes(c.kind)) textChoices();
+    if (!text && c.kind === 'file' && textFormatOf(item.name)) for (const f of Object.keys(TEXT_FORMATS)) choices.push({ as: f, label: fmtLabel(f) });
+  }
+  if (choices.length && !choices.some((x) => x.as === as) && as !== 'auto') as = choices[0].as;
+  return { ...c, label, where, as, choices: choices.length > 1 ? choices : [] };
 }
 
 // ---- placement ----
 
-async function createUnique(fs, dir, name, data, contentType) {
+export async function createUnique(fs, dir, name, data, contentType) {
   const dot = name.lastIndexOf('.');
   const stem = dot > 0 ? name.slice(0, dot) : name;
   const ext = dot > 0 ? name.slice(dot) : '';
   for (let n = 1; n <= 200; n++) {
-    const path = normalizePath(`${dir}/${n === 1 ? name : `${stem} ${n}${ext}`}`);
+    const file = n === 1 ? name : `${stem} ${n}${ext}`;
+    const path = normalizePath(dir ? `${dir}/${file}` : file);
     try {
       await fs.write(path, data, { ifMatch: null, ...(contentType ? { contentType } : {}) });
       return path;
@@ -333,18 +427,37 @@ export async function addItem(folio, item, { ticket, folder, actor = { type: 'un
     return [{ kind: 'email', path, email: headers, duplicate: Boolean(existing), ...(ticket ? { ticket } : {}), ...(privacy?.copy ? { privacy } : {}), summary }, ...extra];
   }
 
+  if (c.kind === 'import') {
+    const r = await folio.import(item.text ?? toBytes(item.data), { format: c.format, name: item.name, actor, via });
+    if (ticket && r.created.length) {
+      for (const id of r.created.slice(0, 50)) await folio.relate(id, 'discovered_from', ticket, { actor, via }).catch(() => {});
+    }
+    return [{ kind: 'import', ...r }];
+  }
+
   if (c.kind === 'note') {
     const raw = String(item.text ?? new TextDecoder().decode(toBytes(item.data)));
     const { text, removed, total } = scrubText(raw);
     const note = total ? ` (removed ${describeRemoved(removed)})` : '';
-    if (ticket) {
+    const explicit = c.chosen && !c.comment;
+    if (ticket && !explicit) {
       await folio.comment(ticket, text, { actor, via });
       return [{ kind: 'note', ticket, ...(total ? { removed } : {}), summary: `Added a comment to ${ticket}${note}` }];
     }
-    const first = text.trim().split(/\r?\n/)[0];
-    const path = await createUnique(fs, 'notes', `${day()}-${slugify(first, 40) || 'note'}.md`, text.endsWith('\n') ? text : text + '\n', 'text/markdown');
-    await record({ kind: 'note', path, ...(total ? { privacy: { removed } } : {}) });
-    return [{ kind: 'note', path, ...(total ? { removed } : {}), summary: `Saved a note in ${path}${note}` }];
+    const fmt = TEXT_FORMATS[c.format] || TEXT_FORMATS.text;
+    const dest = ticket || folder ? fileDestination({ ticket, folder }) : { dir: 'notes' };
+    const fileName = noteName(item.name, text, c.format, day());
+    const path = await createUnique(fs, dest.dir, fileName, text.endsWith('\n') ? text : text + '\n', fmt.type);
+    await record({ kind: 'note', path, format: c.format, ...(c.chosen ? { chosen: true } : { detected: c.reasons }), ...(dest.ticket ? { ticket: dest.ticket } : {}), ...(total ? { privacy: { removed } } : {}) });
+    if (dest.ticket) await folio.linkTicket(dest.ticket, { type: 'attachment', label: fileName, path }, { actor, via });
+    const what = c.format === 'text' ? 'a text note' : `a ${fmt.label} note`;
+    return [{ kind: 'note', path, format: c.format, ...(dest.ticket ? { ticket: dest.ticket } : {}), ...(total ? { removed } : {}), summary: `Saved ${what} in ${path}${note}` }];
+  }
+
+  if (c.pasted) {
+    // JSON pasted as text: filed exactly like a dropped .json file.
+    const name = safeName(item.name ? String(item.name).replace(/\.json$/i, '') + '.json' : `${day()}-pasted.json`);
+    return addItem(folio, { name, type: 'application/json', data: enc.encode(String(item.text)), as: 'json' }, { ticket, folder, actor, via });
   }
 
   if (c.kind === 'data') {
@@ -376,11 +489,27 @@ export async function addItem(folio, item, { ticket, folder, actor = { type: 'un
   return placeFile(folio, item, toBytes(item.data ?? item.text ?? ''), { ticket, folder, actor, via, record });
 }
 
+/** A note's file name: the given name (with the format's extension), else <date>-<title>.<ext>. */
+function noteName(given, text, format, date) {
+  const ext = (TEXT_FORMATS[format] || TEXT_FORMATS.text).ext;
+  if (given && String(given).trim()) return `${safeName(String(given).trim().replace(/\.(md|markdown|html?|txt|text)$/i, ''))}.${ext}`;
+  return `${date}-${slugify(titleOfText(text, format), 40) || 'note'}.${ext}`;
+}
+
+/** `name` with the extension of a text format. Only for text files (or names without an extension). */
+function retyped(name, format) {
+  const fmt = TEXT_FORMATS[format];
+  if (!fmt) return name;
+  if (!textFormatOf(name) && /\.[a-z0-9]{1,10}$/i.test(name) && !/\.(log|text|rtf)$/i.test(name)) throw new ValidationError(`${name} is not a text file, so it cannot be saved as ${fmt.label}`);
+  return `${name.replace(/\.(md|markdown|html?|txt|text|log|rtf)$/i, '')}.${fmt.ext}`;
+}
+
 async function placeFile(folio, item, raw, { ticket, folder, actor, via, record, data }) {
   const dest = fileDestination({ ticket, folder });
-  const name = safeName(item.name || 'untitled');
+  const c = classify(item);
+  const name = c.retype ? retyped(safeName(item.name || 'untitled'), c.retype) : safeName(item.name || 'untitled');
   const { bytes, removed, total } = scrubFile(name, raw);
-  const path = await createUnique(folio.fs, dest.dir + relativeDirs(item.path), name, bytes, item.type || undefined);
+  const path = await createUnique(folio.fs, dest.dir + relativeDirs(item.path), name, bytes, (c.retype ? TEXT_FORMATS[c.retype].type : item.type) || undefined);
   await record({ kind: 'file', path, original_name: item.name, content_type: item.type || null, size: bytes.byteLength, ...(dest.ticket ? { ticket: dest.ticket } : {}), ...(data ? { data } : {}), ...(total ? { privacy: { removed } } : {}) });
   if (dest.ticket) await folio.linkTicket(dest.ticket, { type: 'attachment', label: name, path }, { actor, via });
   return [{ kind: 'file', path, ...(dest.ticket ? { ticket: dest.ticket } : {}), ...(total ? { removed } : {}), summary: `Added ${name} to ${path.slice(0, path.lastIndexOf('/'))}${total ? ` (removed ${describeRemoved(removed)})` : ''}` }];
@@ -481,7 +610,7 @@ function describeRef(r) {
  * Provenance for anything that is not otherwise attributed (spec 8.4): when, by whom and
  * how an item entered the folio. One small file per item under history/intake/.
  */
-async function writeIntakeRecord(folio, { actor, via, ...rest }) {
+export async function writeIntakeRecord(folio, { actor, via, ...rest }) {
   const at = folio.now();
   const stamp = at.replace(/[-:]/g, '').replace(/\.\d+/, '').replace('Z', 'Z');
   const h = await shortHash(`${at}:${rest.path || rest.url}:${Math.random()}`);

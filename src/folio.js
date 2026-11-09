@@ -1,11 +1,15 @@
 import { ConflictError, NotFoundError, ValidationError } from './errors.js';
 import { createManifest, validateManifest } from './manifest.js';
 import { addRepositoryTo, describeRepository, removeRepositoryFrom, repositoryKey } from './repositories.js';
-import { buildGraph, isTicketId, RELATIONSHIP_TYPES, readiness, validateTicket, wouldCycle } from './tickets.js';
+import { buildGraph, findCycle, isTicketId, RELATIONSHIP_TYPES, readiness, validateTicket, wouldCycle } from './tickets.js';
 import { validateFolio } from './validate.js';
-import { addItem, classify } from './intake.js';
+import { addItem, classify, createUnique, intakeChoices, writeIntakeRecord } from './intake.js';
 import { parseEmail } from './email.js';
 import { scrubText } from './privacy.js';
+import { ExcludingFs, nestedFolioDirs } from './nested.js';
+import { normalizePath } from './fs.js';
+import { TEXT_FORMATS, textFormatOf } from './text-format.js';
+import { parseJsonText, planImport } from './import.js';
 
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
 const pad = (n) => String(n).padStart(6, '0');
@@ -14,6 +18,16 @@ const TEXT_EXT = /\.(md|json|txt|eml|csv|html|css|js)$/i;
 const EDITABLE = ['title', 'type', 'status', 'priority', 'owner', 'outcome', 'target_date', 'tags', 'hold', 'waiting_on', 'resolution', 'resolution_note', 'links', 'participants'];
 
 const defaultActor = { type: 'unknown' };
+
+/** Where an imported ticket came from: { source, id, url?, ... } with string values, or null. */
+function externalOf(x) {
+  if (!x || typeof x !== 'object' || typeof x.source !== 'string' || x.id === undefined || x.id === null) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(x)) if (['string', 'number', 'boolean'].includes(typeof v)) out[k] = typeof v === 'string' ? v.slice(0, 500) : v;
+  out.id = String(x.id);
+  return out;
+}
+const MAX_TICKET = (ids) => ids.reduce((m, id) => Math.max(m, Number(id.slice(3))), 0);
 
 /** Tags as written: trimmed, unique, in order. Accepts an array or a comma-separated string; `labels` is the older name. */
 export function normalizeTags(v) {
@@ -33,8 +47,13 @@ export class Folio {
    *              carrying card numbers): { put(bytes, { name, type, sha256, actor, via }) -> { store, key, expires_at } }.
    *              Without it only the summary or the text copy is kept (spec 8.4.1).
    */
-  constructor(fs, { now = () => new Date().toISOString(), hold = null } = {}) {
-    this.fs = fs;
+  /**
+   * @param nested  folders inside this folio that are folios of their own (see nested.js). Their files are hidden
+   *                from this folio: not listed, searched or written. Folio.open(fs, { nested: 'detect' }) finds them.
+   */
+  constructor(fs, { now = () => new Date().toISOString(), hold = null, nested = [] } = {}) {
+    this.nested = Array.isArray(nested) ? nested.map((d) => normalizePath(d)) : [];
+    this.fs = this.nested.length ? new ExcludingFs(fs, this.nested) : fs;
     this.now = now;
     this.hold = hold;
   }
@@ -49,8 +68,9 @@ export class Folio {
     return new Folio(fs, { now });
   }
 
-  static async open(fs, opts) {
-    const f = new Folio(fs, opts);
+  static async open(fs, opts = {}) {
+    const nested = opts.nested === 'detect' ? await nestedFolioDirs(fs) : opts.nested;
+    const f = new Folio(fs, { ...opts, nested });
     await f.manifest();
     return f;
   }
@@ -163,6 +183,8 @@ export class Folio {
       ...(input.target_date ? { target_date: input.target_date } : {}),
       ...(ticketTagsFrom(input).length ? { tags: ticketTagsFrom(input) } : {}),
       ...(input.links ? { links: input.links } : {}),
+      ...(input.resolution ? { resolution: input.resolution } : {}),
+      ...(externalOf(input.external) ? { external: externalOf(input.external) } : {}),
       relationships: input.relationships || [],
       revision: 1,
       created_at: now,
@@ -303,6 +325,162 @@ export class Folio {
   /** What add() would do with an item, without doing it. */
   classify(item) {
     return classify(item);
+  }
+
+  /** What add() would do, where it would go, and what else the item could be saved as ({ as, choices }). */
+  choices(item, { ticket, folder } = {}) {
+    return intakeChoices(item, { ticket, folder });
+  }
+
+  // ---- importing from other tools (import.js) ----
+
+  /**
+   * Turn an export from another tool (Asana, Trello, or { tickets: [...] }) into tickets. `input` is parsed JSON,
+   * JSON text or bytes. Tickets already imported (same `external` source and id) are skipped, so an export can be
+   * imported again after more work was added to it. Subtasks become child tickets, dependencies `blocked_by`,
+   * comments the ticket's history. A record of what was imported is kept in history/imports/.
+   * Returns { format, label, created: [ids], duplicates, path, summary }. With dryRun, only { would_create, duplicates }.
+   */
+  async import(input, { format, name, actor = defaultActor, via = 'folio-lib', dryRun = false } = {}) {
+    const doc = typeof input === 'string' || input instanceof Uint8Array ? parseJsonText(input) : input;
+    if (doc === undefined) throw new ValidationError('That is not valid JSON');
+    const { plans, ...found } = planImport(doc, { format });
+    const existing = await this.listTickets();
+    const known = new Map(existing.filter((t) => t.external?.source && t.external?.id).map((t) => [`${t.external.source}:${t.external.id}`, t.id]));
+    const ids = new Map(); // plan key -> ticket id
+    const fresh = [];
+    for (const p of plans) {
+      const k = `${p.external.source}:${p.external.id}`;
+      if (known.has(k)) ids.set(p.key, known.get(k));
+      else if (!fresh.some((f) => f.key === p.key)) fresh.push(p);
+    }
+    const duplicates = plans.length - fresh.length;
+    if (dryRun) return { ...found, would_create: fresh.length, duplicates };
+
+    // Claim ids first (the create-only first event is the lock, as in createTicket), so relationships can point anywhere.
+    const now = this.now();
+    let n = MAX_TICKET(await this.ticketIds());
+    const claimed = [];
+    for (const p of fresh) {
+      for (let attempt = 0; ; attempt++) {
+        if (attempt > 50) throw new ConflictError('tickets', 'Could not allocate ticket ids; another writer is creating tickets');
+        const id = `TK-${String(++n).padStart(3, '0')}`;
+        const event = { ticket: id, revision: 1, at: now, actor, via, type: 'created', imported: { source: p.external.source, id: p.external.id } };
+        try {
+          await this.fs.write(`tickets/${id}/events/${pad(1)}.json`, json(event), { ifMatch: null });
+        } catch (e) {
+          if (e instanceof ConflictError) continue;
+          throw e;
+        }
+        ids.set(p.key, id);
+        claimed.push({ p, id });
+        break;
+      }
+    }
+
+    // Relationships: parents first, then blockers that would not make a loop.
+    const tickets = new Map(existing.map((t) => [t.id, t]));
+    for (const { p, id } of claimed) tickets.set(id, { id, relationships: [] });
+    for (const { p, id } of claimed) {
+      const parent = p.parent ? ids.get(p.parent) : null;
+      if (parent && parent !== id) {
+        const trial = { ...tickets.get(id), relationships: [{ type: 'parent', target: parent }] };
+        if (!findCycle([...tickets.values()].map((t) => (t.id === id ? trial : t)), 'parent')) tickets.set(id, trial);
+      }
+    }
+    for (const { p, id } of claimed) {
+      for (const b of p.blocked_by || []) {
+        const target = ids.get(b);
+        if (!target || target === id) continue;
+        const cur = tickets.get(id);
+        if (cur.relationships.some((r) => r.type === 'blocked_by' && r.target === target)) continue;
+        if (!wouldCycle([...tickets.values()], id, 'blocked_by', target)) tickets.set(id, { ...cur, relationships: [...cur.relationships, { type: 'blocked_by', target }] });
+      }
+    }
+
+    const created = [];
+    const failed = [];
+    for (const { p, id } of claimed) {
+      const comments = (p.comments || []).slice(0, 200);
+      const tags = normalizeTags(p.tags);
+      const ticket = {
+        id,
+        title: scrubText(String(p.title)).text.slice(0, 300),
+        type: p.type || 'request',
+        status: p.status || 'open',
+        priority: p.priority || 'normal',
+        ...(p.owner ? { owner: String(p.owner).slice(0, 200) } : {}),
+        ...(p.outcome ? { outcome: scrubText(String(p.outcome)).text } : {}),
+        ...(p.target_date ? { target_date: p.target_date } : {}),
+        ...(tags.length ? { tags } : {}),
+        ...(p.links?.length ? { links: p.links } : {}),
+        ...(p.resolution ? { resolution: p.resolution } : {}),
+        external: externalOf(p.external),
+        relationships: tickets.get(id).relationships,
+        revision: 1 + comments.length,
+        created_at: now,
+        updated_at: now,
+      };
+      const problems = validateTicket(ticket).filter((x) => x.level === 'error');
+      if (problems.length) {
+        await this.fs.remove(`tickets/${id}/events/${pad(1)}.json`);
+        failed.push({ key: p.key, title: p.title, problems: problems.map((x) => x.message) });
+        continue;
+      }
+      for (const [i, c] of comments.entries()) {
+        const by = [c.author, c.at ? String(c.at).slice(0, 10) : null].filter(Boolean).join(', ');
+        const ev = { ticket: id, revision: i + 2, at: now, actor, via, type: 'comment', comment: scrubText(`${by ? `(${found.label}, ${by}) ` : ''}${c.text}`).text, imported: { source: p.external.source, ...(c.author ? { author: c.author } : {}), ...(c.at ? { at: c.at } : {}) } };
+        await this.fs.write(`tickets/${id}/events/${pad(i + 2)}.json`, json(ev), { ifMatch: null });
+      }
+      if (p.description && String(p.description).trim()) {
+        const d = scrubText(String(p.description)).text;
+        await this.fs.write(`tickets/${id}/description.md`, d.endsWith('\n') ? d : d + '\n');
+      }
+      await this.fs.write(`tickets/${id}/ticket.json`, json(ticket), { ifMatch: null });
+      created.push(id);
+    }
+
+    const stamp = now.replace(/[-:]/g, '').replace(/\.\d+/, '');
+    const path = await createUnique(
+      this.fs,
+      'history/imports',
+      `${stamp}-${found.format}.json`,
+      json({ at: now, actor, via, format: found.format, ...(name ? { original_name: String(name) } : {}), ...(found.project ? { project: found.project } : {}), created: claimed.filter((c) => created.includes(c.id)).map((c) => ({ external: c.p.external.id, ticket: c.id })), duplicates, ...(failed.length ? { failed } : {}) }),
+      'application/json'
+    );
+    const parts = [`Imported ${created.length} ${created.length === 1 ? 'ticket' : 'tickets'} from ${found.label}${found.project ? ` (${found.project})` : ''}`];
+    if (duplicates) parts.push(`${duplicates} already imported`);
+    if (failed.length) parts.push(`${failed.length} could not be imported`);
+    return { format: found.format, label: found.label, created, duplicates, ...(failed.length ? { failed } : {}), path, summary: parts.join('; ') };
+  }
+
+  /**
+   * Change the type of a Markdown, HTML or text file (when detection guessed wrong): the file is renamed to the
+   * format's extension, keeping its content, and tickets linking to it are updated. Returns { path, from, format }.
+   */
+  async setTextFormat(path, format, { actor = defaultActor, via = 'folio-lib' } = {}) {
+    const from = normalizePath(path);
+    const fmt = TEXT_FORMATS[format];
+    if (!fmt) throw new ValidationError(`Unknown type ${format}. Use ${Object.keys(TEXT_FORMATS).join(', ')}.`);
+    const current = textFormatOf(from);
+    if (!current) throw new ValidationError(`${from} is not a Markdown, HTML or text file`);
+    if (!from.includes('/') && /^(README|CONTEXT|AGENTS)\.md$/i.test(from)) throw new ValidationError(`${from} is one of the folio's own files and stays Markdown`);
+    if (current === format) return { path: from, from, format, changed: false, summary: `${from} is already ${fmt.label}` };
+    const cur = typeof this.fs.readBytes === 'function' ? await this.fs.readBytes(from) : await this.fs.read(from);
+    if (!cur) throw new NotFoundError(from);
+    const data = cur.bytes ?? cur.text;
+    const slash = from.lastIndexOf('/');
+    const dir = slash === -1 ? '' : from.slice(0, slash);
+    const stem = from.slice(slash + 1).replace(/\.[^.]+$/, '');
+    const to = await createUnique(this.fs, dir, `${stem}.${fmt.ext}`, data, fmt.type);
+    await this.fs.remove(from);
+    for (const t of await this.listTickets()) {
+      if (!(t.links || []).some((l) => l.path === from)) continue;
+      const links = t.links.map((l) => (l.path === from ? { ...l, path: to, ...(l.label === from.slice(slash + 1) ? { label: to.slice(to.lastIndexOf('/') + 1) } : {}) } : l));
+      await this.updateTicket(t.id, { links }, { actor, via }).catch(() => {});
+    }
+    await writeIntakeRecord(this, { actor, via, kind: 'retyped', path: to, from, format });
+    return { path: to, from, format, changed: true, summary: `Changed ${from} to ${fmt.label}: ${to}` };
   }
 
   /**

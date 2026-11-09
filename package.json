@@ -1,6 +1,6 @@
 {
   "name": "@engine9/folio",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Utilities for working with folios: portable folder-based records of tickets, feedback, artifacts, decisions and evidence.",
   "type": "module",
   "license": "MIT",

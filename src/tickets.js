@@ -22,6 +22,8 @@ export function validateTicket(t, path = 'ticket.json') {
   for (const k of ['tags', 'labels']) {
     if (t[k] !== undefined && (!Array.isArray(t[k]) || t[k].some((x) => typeof x !== 'string'))) err('ticket_tags', `${k} must be an array of strings`);
   }
+  if (t.external !== undefined && (!t.external || typeof t.external !== 'object' || typeof t.external.source !== 'string' || typeof t.external.id !== 'string'))
+    err('ticket_external', 'external must be { source, id } naming where the ticket was imported from');
   if (t.relationships !== undefined) {
     if (!Array.isArray(t.relationships)) err('ticket_relationships', 'relationships must be an array');
     else
