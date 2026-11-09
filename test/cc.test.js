@@ -23,6 +23,9 @@ test('parseCc reads emails, Slack channels and people, phone numbers and other c
   assert.throws(() => parseCc('not an address'), ValidationError);
   assert.throws(() => parseCc(''), ValidationError);
   assert.throws(() => parseCc('x', { channel: 'email' }), ValidationError);
+  assert.deepEqual(parseCc('fbcenc', { channel: 'slack' }), { channel: 'slack', address: 'fbcenc', kind: 'person' });
+  assert.deepEqual(parseCc('#fbcenc', { channel: 'slack' }), { channel: 'slack', address: '#fbcenc', kind: 'channel' });
+  assert.deepEqual(parseCc('202 555 0142', { channel: 'sms' }), { channel: 'sms', address: '2025550142', kind: 'person' });
 });
 
 test('a folio keeps its own CC list in folio.json; adding twice does not duplicate, and every change is recorded', async () => {

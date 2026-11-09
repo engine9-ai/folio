@@ -72,7 +72,11 @@ export function parseCc(input, opts = {}) {
       s = named[2].trim();
     }
     const prefixed = /^([a-z][a-z0-9_-]{0,23}):(?!\/\/)(.+)$/i.exec(s);
-    if (prefixed && !/^mailto$/i.test(prefixed[1]) && !emailAddress(s)) {
+    if (opts.channel && !prefixed?.[1]?.match(/^(mailto|tel|sms|slack|email)$/i)) {
+      // The channel was chosen: take the address as typed (normalizeCc checks it for that channel).
+      o.channel = String(opts.channel).toLowerCase();
+      o.address = o.channel === 'slack' || /^mailto:/i.test(s) ? s.replace(/^mailto:/i, '') : s;
+    } else if (prefixed && !/^mailto$/i.test(prefixed[1]) && !emailAddress(s)) {
       o.channel = prefixed[1].toLowerCase() === 'tel' ? 'sms' : prefixed[1].toLowerCase();
       o.address = prefixed[2].trim();
     } else if (/^mailto:/i.test(s)) {
