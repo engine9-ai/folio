@@ -49,6 +49,8 @@ test('every change to folio.json is recorded: who changed what, from what, to wh
   await folio.edit({ status: 'active' }, { actor }); // no change: nothing recorded
   const h = await folio.history();
   assert.deepEqual(h.map((x) => x.type), ['created', 'updated']);
+  const last = await folio.history({ limit: 1 });
+  assert.deepEqual([last.length, last.total, last[0].type], [1, 2, 'updated']);
   assert.deepEqual(h[1].changes, { status: { from: 'draft', to: 'active' }, priority: { from: null, to: 'urgent' }, owner: { from: null, to: 'pat@example.com' } });
   assert.deepEqual([h[1].actor, h[1].via], [actor, 'test']);
 });

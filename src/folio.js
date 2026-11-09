@@ -190,11 +190,18 @@ export class Folio {
   }
 
   /** This folio's change history, oldest first. */
-  async history() {
+  /**
+   * Changes to folio.json, oldest first. `limit` keeps only the newest that many (only those are read);
+   * the result's `total` says how many there are in all.
+   */
+  async history({ limit } = {}) {
     // Names are the time of the change; several in the same instant are "<time> 2.json", "<time> 3.json".
     const seq = (f) => Number(/ (\d+)\.json$/.exec(f)?.[1] || 1);
-    const files = (await this.fs.list('history/changes')).filter((f) => f.endsWith('.json')).sort((a, b) => a.replace(/( \d+)?\.json$/, '').localeCompare(b.replace(/( \d+)?\.json$/, '')) || seq(a) - seq(b));
-    return (await mapLimit(files, READS, (f) => this.fs.read(f))).filter(Boolean).map((c) => JSON.parse(c.text));
+    const all = (await this.fs.list('history/changes')).filter((f) => f.endsWith('.json')).sort((a, b) => a.replace(/( \d+)?\.json$/, '').localeCompare(b.replace(/( \d+)?\.json$/, '')) || seq(a) - seq(b));
+    const files = limit > 0 ? all.slice(-limit) : all;
+    const out = (await mapLimit(files, READS, (f) => this.fs.read(f))).filter(Boolean).map((c) => JSON.parse(c.text));
+    Object.defineProperty(out, 'total', { value: all.length, enumerable: false });
+    return out;
   }
 
   // ---- repositories (core part of the model) ----------------------------------
