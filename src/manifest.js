@@ -2,7 +2,16 @@ import { validateRepositories } from './repositories.js';
 
 export const FORMAT = 'folio';
 export const FORMAT_REVISION = 1;
-export const FOLIO_STATUSES = ['draft', 'active', 'waiting', 'completed', 'archived'];
+/**
+ * A folio's status is the most important thing about it after its title: it is the column a folio sits in on its
+ * folder's board. The standard statuses, in board order. A folio may use another lowercase status of its own
+ * ("blocked-on-legal"); boards show it as an extra column.
+ */
+export const FOLIO_STATUSES = ['draft', 'backlog', 'planned', 'active', 'waiting', 'review', 'completed', 'archived'];
+export const FOLIO_STATUS_LABELS = Object.freeze({ draft: 'Draft', backlog: 'Backlog', planned: 'Up Next', active: 'In Progress', waiting: 'Waiting', review: 'In Review', completed: 'Done', archived: 'Archived' });
+export const FOLIO_STATUS_PATTERN = /^[a-z][a-z0-9_-]{0,39}$/;
+/** "In Progress" for active; a custom status reads as its words ("blocked-on-legal" -> "Blocked on legal"). */
+export const folioStatusLabel = (s) => FOLIO_STATUS_LABELS[s] || String(s || '').replace(/[-_]+/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
 const ID_ALPHABET = 'abcdefghjkmnpqrstvwxyz23456789';
 
@@ -40,7 +49,11 @@ export function validateManifest(m) {
     problems.push({ level: 'warning', code: 'manifest_newer_revision', path: 'folio.json', message: `Written by a newer format revision (${m.format_revision}); unknown fields will be preserved` });
   if (typeof m.id !== 'string' || !/^[a-z0-9][a-z0-9-]{2,63}$/.test(m.id)) err('manifest_id', 'id must be a stable lowercase identifier');
   if (typeof m.title !== 'string' || !m.title.trim()) err('manifest_title', 'title is required');
-  if (m.status !== undefined && !FOLIO_STATUSES.includes(m.status)) err('manifest_status', `status must be one of ${FOLIO_STATUSES.join(', ')}`);
+  if (m.status !== undefined) {
+    if (typeof m.status !== 'string' || !FOLIO_STATUS_PATTERN.test(m.status)) err('manifest_status', `status must be a lowercase word such as ${FOLIO_STATUSES.join(', ')}`);
+    else if (!FOLIO_STATUSES.includes(m.status))
+      problems.push({ level: 'warning', code: 'manifest_custom_status', path: 'folio.json', message: `"${m.status}" is not a standard status (${FOLIO_STATUSES.join(', ')}); boards show it as its own column` });
+  }
   for (const k of ['created_at', 'updated_at']) {
     if (m[k] !== undefined && Number.isNaN(Date.parse(m[k]))) err('manifest_date', `${k} must be an ISO timestamp`);
   }

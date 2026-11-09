@@ -127,3 +127,20 @@ test('nested folios: a folio inside a folio keeps its own files', async () => {
   assert.equal((await child.manifest()).manifest.title, 'Phase 2');
   assert.deepEqual((await child.search('needle')).map((h) => h.path), ['notes/secret.md']);
 });
+
+test('folio status: standard statuses, custom ones allowed with a warning, setStatus tells the host', async () => {
+  const { FOLIO_STATUSES, folioStatusLabel, validateManifest } = await import('../src/index.js');
+  assert.deepEqual(FOLIO_STATUSES, ['draft', 'backlog', 'planned', 'active', 'waiting', 'review', 'completed', 'archived']);
+  assert.equal(folioStatusLabel('active'), 'In Progress');
+  assert.equal(folioStatusLabel('blocked-on-legal'), 'Blocked on legal');
+  const fs = new MemoryFs();
+  const seen = [];
+  await Folio.init(fs, { title: 'Board', now });
+  const folio = await Folio.open(fs, { now, onManifest: (m) => seen.push(m.status) });
+  await folio.setStatus('review');
+  assert.equal((await folio.manifest()).manifest.status, 'review');
+  await folio.setStatus('Blocked-On-Legal');
+  assert.deepEqual(seen, ['review', 'blocked-on-legal']);
+  assert.deepEqual(validateManifest((await folio.manifest()).manifest).map((p) => p.level), ['warning']);
+  await assert.rejects(folio.setStatus('Not a status!'), ValidationError);
+});

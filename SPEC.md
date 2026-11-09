@@ -307,15 +307,20 @@ A folio overview should answer: **What is this? What is outstanding? What change
 
 ### 4.3 Status and completion
 
-Suggested folio statuses are `draft`, `active`, `waiting`, `completed`, and `archived`.
+A folio's **status** is, after its title, the most important thing about it. It lives in `folio.json` (`status`) and is the folio's column on its folder's board (13.1.1). The standard statuses, in board order:
 
-- **Draft:** being assembled; not yet active work.
-- **Active:** work is proceeding or open for review.
-- **Waiting:** progress depends principally on an external response or decision.
-- **Completed:** the agreed outcome is delivered; records remain accessible.
-- **Archived:** retained for history and reference, with conspicuous read-only defaults.
+| Status | Board column | Meaning |
+|---|---|---|
+| `draft` | Draft (shown only when used) | Being assembled; not yet real work. |
+| `backlog` | Backlog | Recorded, not scheduled. |
+| `planned` | Up Next | Scheduled to start soon. |
+| `active` | In Progress | Work is proceeding. The default for a new folio. |
+| `waiting` | Waiting | Progress depends on an external response or decision. |
+| `review` | In Review | Delivered for review or approval. |
+| `completed` | Done | The agreed outcome is delivered; records remain accessible. |
+| `archived` | Archived (hidden unless asked) | Retained for history and reference, with conspicuous read-only defaults. |
 
-A folio can be reopened. Closing or archiving a folio must not discard ticket histories, feedback, or artifacts. Moving it between top-level folders is an intentional administrative action involving a fresh permission assessment.
+A folio may use a status of its own (a lowercase word such as `blocked-on-legal`); validation warns, and boards show it as an extra column. A folio can be reopened. Closing or archiving a folio must not discard ticket histories, feedback, or artifacts. Moving it between top-level folders is an intentional administrative action involving a fresh permission assessment. `folio.setStatus(status)` changes it; hosts may keep a disposable index of titles and statuses (12.3) and are told of every change through `onManifest`.
 
 ### 4.4 Duplicate, move, export, and import
 
@@ -728,6 +733,10 @@ The interface should be approachable to an account manager while remaining usefu
 ### 13.1 Top-level navigation
 
 Recommended labels are **Folders**, **Folios**, and **Connections**. Within a folio, the main sections are **Overview**, **Tickets**, **Feedback**, **Artifacts**, **Files**, **Sources**, and **Decisions**. Some smaller sections can be grouped as needed, but the terminology should stay consistent.
+
+### 13.1.1 Folder board
+
+A folder opens as a **board**, like a project's task board: every folio inside it (at any depth) is a card in the column of its status (4.3). A card shows the title, summary, where it sits below the folder, tags, target date and owner (all from `folio.json`). Dragging a card to another column changes the folio's status in its `folio.json`; dropping files on a card adds them to that folio; each column can add a new folio with that status. Icons and list views remain available, and archived folios are shown on request.
 
 ### 13.2 Folio overview
 

@@ -1,5 +1,5 @@
 import { ConflictError, NotFoundError, ValidationError } from './errors.js';
-import { createManifest, validateManifest } from './manifest.js';
+import { FOLIO_STATUS_PATTERN, createManifest, validateManifest } from './manifest.js';
 import { addRepositoryTo, describeRepository, removeRepositoryFrom, repositoryKey } from './repositories.js';
 import { buildGraph, findCycle, isTicketId, RELATIONSHIP_TYPES, readiness, validateTicket, wouldCycle } from './tickets.js';
 import { validateFolio } from './validate.js';
@@ -27,6 +27,21 @@ function externalOf(x) {
   out.id = String(x.id);
   return out;
 }
+/** Map over items with at most `n` in flight: reads from object stores are slow one by one, fast together. */
+export async function mapLimit(items, n, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+  return out;
+}
+const READS = 16;
+
 const MAX_TICKET = (ids) => ids.reduce((m, id) => Math.max(m, Number(id.slice(3))), 0);
 
 /** Tags as written: trimmed, unique, in order. Accepts an array or a comma-separated string; `labels` is the older name. */
@@ -51,7 +66,12 @@ export class Folio {
    * @param nested  folders inside this folio that are folios of their own (see nested.js). Their files are hidden
    *                from this folio: not listed, searched or written. Folio.open(fs, { nested: 'detect' }) finds them.
    */
-  constructor(fs, { now = () => new Date().toISOString(), hold = null, nested = [] } = {}) {
+  /**
+   * @param onManifest  called with the new manifest after this folio writes folio.json (hosts keep an index of
+   *                    titles and statuses for fast listings).
+   */
+  constructor(fs, { now = () => new Date().toISOString(), hold = null, nested = [], onManifest = null } = {}) {
+    this.onManifest = onManifest;
     this.nested = Array.isArray(nested) ? nested.map((d) => normalizePath(d)) : [];
     this.fs = this.nested.length ? new ExcludingFs(fs, this.nested) : fs;
     this.now = now;
@@ -93,7 +113,15 @@ export class Folio {
     const bad = validateManifest(next).filter((p) => p.level === 'error');
     if (bad.length) throw new ValidationError(bad);
     await this.fs.write('folio.json', json(next), { ifMatch: ifMatch ?? etag });
+    if (this.onManifest) await this.onManifest(next);
     return next;
+  }
+
+  /** Set the folio's status (its column on the folder's board). Standard statuses: FOLIO_STATUSES; others are allowed. */
+  async setStatus(status, { ifMatch } = {}) {
+    const s = String(status || '').trim().toLowerCase();
+    if (!FOLIO_STATUS_PATTERN.test(s)) throw new ValidationError(`“${status}” is not a status`);
+    return this.updateManifest({ status: s }, { ifMatch });
   }
 
   // ---- repositories (core part of the model) ----------------------------------
@@ -158,9 +186,9 @@ export class Folio {
   }
 
   async listTickets() {
+    const files = await mapLimit(await this.ticketIds(), READS, (id) => this.fs.read(`tickets/${id}/ticket.json`));
     const out = [];
-    for (const id of await this.ticketIds()) {
-      const cur = await this.fs.read(`tickets/${id}/ticket.json`);
+    for (const cur of files) {
       if (!cur) continue;
       try {
         out.push(JSON.parse(cur.text));
@@ -497,11 +525,12 @@ export class Folio {
       if (!tickets.some((t) => t.id === ticket)) throw new NotFoundError(`Ticket ${ticket}`);
       paths = paths.filter((p) => (linkedFrom.get(p) || []).includes(ticket));
     }
+    const texts = await mapLimit(paths, READS, (path) => (/\.eml$/i.test(path) ? this.fs.read(path) : null));
     const out = [];
-    for (const path of paths) {
+    for (const [i, path] of paths.entries()) {
       const entry = { path, tickets: linkedFrom.get(path) || [] };
       if (/\.eml$/i.test(path)) {
-        const cur = await this.fs.read(path);
+        const cur = texts[i];
         const parsed = cur ? parseEmail(cur.text) : null;
         entry.headers = parsed?.headers || {};
         entry.text = (parsed?.text || '').slice(0, maxChars);
@@ -514,11 +543,7 @@ export class Folio {
 
   async ticketEvents(id) {
     const files = (await this.fs.list(`tickets/${id}/events`)).filter((f) => f.endsWith('.json'));
-    const out = [];
-    for (const f of files) {
-      const cur = await this.fs.read(f);
-      if (cur) out.push(JSON.parse(cur.text));
-    }
+    const out = (await mapLimit(files, READS, (f) => this.fs.read(f))).filter(Boolean).map((cur) => JSON.parse(cur.text));
     return out.sort((a, b) => a.revision - b.revision);
   }
 
@@ -542,8 +567,7 @@ export class Folio {
   }
 
   async overview() {
-    const { manifest } = await this.manifest();
-    const views = await this.ticketViews();
+    const [{ manifest }, views] = await Promise.all([this.manifest(), this.ticketViews()]);
     const counts = { ready: 0, in_progress: 0, waiting: 0, blocked: 0, done: 0 };
     for (const t of views) counts[t.readiness.state] += 1;
     return {
@@ -560,9 +584,10 @@ export class Folio {
     const q = String(query || '').toLowerCase();
     if (!q) return [];
     const hits = [];
-    for (const path of await this.fs.list()) {
-      if (path.startsWith('indexes/') || !TEXT_EXT.test(path)) continue;
-      const cur = await this.fs.read(path);
+    const paths = (await this.fs.list()).filter((path) => !path.startsWith('indexes/') && TEXT_EXT.test(path));
+    const files = await mapLimit(paths, READS, (path) => this.fs.read(path));
+    for (const [i, path] of paths.entries()) {
+      const cur = files[i];
       if (!cur) continue;
       const lines = cur.text.split('\n');
       for (let i = 0; i < lines.length; i++) {

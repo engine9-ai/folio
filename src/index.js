@@ -8,7 +8,7 @@ export { KEEP_LIMITS, SUMMARY_KIND, dataFormat, keepInFolio, parseDelimited, sum
 export { CREDENTIAL_PATTERNS, PROHIBITED_TYPES, describeRemoved, findCredentials, prohibitedIn, scrubText } from './privacy.js';
 export { MemoryFs, normalizePath } from './fs.js';
 export { ConflictError, FolioError, NotFoundError, ValidationError } from './errors.js';
-export { FOLIO_STATUSES, FORMAT, FORMAT_REVISION, createManifest, newFolioId, validateManifest } from './manifest.js';
+export { FOLIO_STATUSES, FOLIO_STATUS_LABELS, FOLIO_STATUS_PATTERN, folioStatusLabel, FORMAT, FORMAT_REVISION, createManifest, newFolioId, validateManifest } from './manifest.js';
 export {
   REPOSITORY_PROVIDERS,
   REPOSITORY_ROLES,
