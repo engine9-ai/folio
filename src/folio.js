@@ -12,6 +12,7 @@ import { TEXT_FORMATS, textFormatOf } from './text-format.js';
 import { parseJsonText, planImport } from './import.js';
 import { EMAIL_DIRS, isEmailPath, postMessage, readComms } from './comms.js';
 import { convertTickets } from './legacy-tickets.js';
+import { MAX_CC, ccAuthor, ccKey, findCc, normalizeCc, parseCc } from './cc.js';
 
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
 const TEXT_EXT = /\.(md|json|txt|eml|csv|html|css|js)$/i;
@@ -72,8 +73,10 @@ export class Folio {
    *                    this folio. Folio.open(fs, { nested: 'detect' }) finds them.
    * @param onManifest  called with the new manifest after this folio writes folio.json (hosts keep an index).
    * @param onChild     called with { id, dir, manifest } after a folio is created inside this one (hosts register it).
+   * @param onMessage   called with each new message after it is written to comms/ ({ path, kind, at, author, text, ... };
+   *                    for an email also { subject, from, to }). Hosts use it to pass messages on to the folio's CCs.
    */
-  constructor(fs, { now = () => new Date().toISOString(), hold = null, nested = [], onManifest = null, onChild = null } = {}) {
+  constructor(fs, { now = () => new Date().toISOString(), hold = null, nested = [], onManifest = null, onChild = null, onMessage = null } = {}) {
     this.root = fs;
     this.nested = Array.isArray(nested) ? nested.map((d) => normalizePath(d)) : [];
     this.fs = this.nested.length ? new ExcludingFs(fs, this.nested) : fs;
@@ -81,6 +84,7 @@ export class Folio {
     this.hold = hold;
     this.onManifest = onManifest;
     this.onChild = onChild;
+    this.onMessage = onMessage;
   }
 
   /** Create a minimal folio: folio.json + README.md. Fails if one already exists here. */
@@ -314,9 +318,75 @@ export class Folio {
     return postMessage(this, { kind, text, attachments, actor, via, at });
   }
 
-  /** The conversation, oldest first (newest `limit`): messages and emails in comms/ (and older sources/email). */
-  comms({ limit = 200, maxChars = 4000 } = {}) {
-    return readComms(this, { limit, maxChars, read: (items, fn) => mapLimit(items, READS, fn) });
+  /**
+   * The conversation, oldest first (newest `limit`): messages and emails in comms/ (and older sources/email).
+   * Messages from the folio's CCs are marked `cc`. Pass `cc` (folio.json's list) to save reading folio.json.
+   */
+  async comms({ limit = 200, maxChars = 4000, cc } = {}) {
+    const list = cc ?? (await this.manifest().then(({ manifest }) => manifest.cc || [], () => []));
+    return readComms(this, { limit, maxChars, cc: Array.isArray(list) ? list : [], read: (items, fn) => mapLimit(items, READS, fn) });
+  }
+
+  // ---- CC: people and channels kept informed (cc.js, spec 5.7) ------------------
+
+  /** Who is CC'd on this folio: [{ channel, address, kind, name?, workspace?, key, integration_state }]. */
+  async ccs() {
+    const { manifest } = await this.manifest();
+    return (manifest.cc || []).map((c) => ({ ...c, key: ccKey(c), integration_state: 'reference_only' }));
+  }
+
+  /**
+   * CC someone or a channel: an email address, "#slack-channel", "@slack-person", a phone number, or
+   * { channel, address, name?, kind?, workspace? }. Already listed: its name is updated if a new one is given.
+   * Returns { entry, added }.
+   */
+  async addCc(input, { actor = defaultActor, via = 'folio-lib', ...opts } = {}) {
+    const entry = typeof input === 'string' ? parseCc(input, opts) : normalizeCc({ ...input, ...Object.fromEntries(Object.entries(opts).filter(([, v]) => v)) });
+    const { manifest, etag } = await this.manifest();
+    const list = Array.isArray(manifest.cc) ? manifest.cc : [];
+    const key = ccKey(entry);
+    const i = list.findIndex((c) => ccKey(c) === key);
+    if (i >= 0) {
+      if (!entry.name || entry.name === list[i].name) return { entry: list[i], added: false };
+      const cc = list.map((c, j) => (j === i ? { ...c, name: entry.name } : c));
+      await this.updateManifest({ cc }, { ifMatch: etag, actor, via });
+      return { entry: cc[i], added: false };
+    }
+    if (list.length >= MAX_CC) throw new ValidationError(`A folio can have at most ${MAX_CC} CCs`);
+    const added = { ...entry, added_at: this.now(), ...(actor?.id ? { added_by: actor.on_behalf_of || actor.id } : {}) };
+    await this.updateManifest({ cc: [...list, added] }, { ifMatch: etag, actor, via });
+    return { entry: added, added: true };
+  }
+
+  /** Stop CC'ing someone: by key ("slack:#acme"), by what addCc takes, or by { channel, address }. */
+  async removeCc(input, { actor = defaultActor, via = 'folio-lib' } = {}) {
+    const { manifest, etag } = await this.manifest();
+    const list = Array.isArray(manifest.cc) ? manifest.cc : [];
+    let key = typeof input === 'string' && /^[a-z][a-z0-9_-]*(@[^:]+)?:/.test(input) && list.some((c) => ccKey(c) === input) ? input : null;
+    if (!key) {
+      const want = typeof input === 'string' ? parseCc(input) : normalizeCc(input);
+      key = ccKey(findCc(list, want) || want);
+    }
+    const cc = list.filter((c) => ccKey(c) !== key);
+    if (cc.length === list.length) throw new NotFoundError('That CC');
+    await this.updateManifest({ cc: cc.length ? cc : undefined }, { ifMatch: etag, actor, via });
+    return { removed: key };
+  }
+
+  /**
+   * A message that came in over a channel from one of this folio's CCs (a Slack reply, an SMS): posted to comms/
+   * and credited to that CC. `from`: { channel, address, workspace?, name? }. Only CCs may post this way; anyone
+   * else is refused (NotFoundError). `ref` is the channel's id for the message, so a second delivery is ignored.
+   * Returns { path, message, cc, duplicate? }.
+   */
+  async receive(from, text, { kind = 'comment', at, ref, attachments = [], via } = {}) {
+    if (!['comment', 'chat', 'update'].includes(kind)) throw new ValidationError('A message from a CC is a comment, a chat or an update');
+    const { manifest } = await this.manifest();
+    const hit = findCc(manifest.cc || [], from);
+    if (!hit) throw new NotFoundError('A CC with that address on this folio');
+    const author = ccAuthor(hit, from.name && !hit.name ? { name: String(from.name).slice(0, 120) } : {});
+    const r = await postMessage(this, { kind, text, attachments, actor: author, via: via || `channel/${hit.channel}`, at, ref: ref ? { channel: hit.channel, id: String(ref) } : null });
+    return { ...r, cc: ccKey(hit) };
   }
 
   // ---- intake: drag and drop, paste, upload (intake.js) ----------------------------
@@ -563,6 +633,7 @@ export class Folio {
       ready: kids.filter((c) => c.readiness.ready).map((c) => ({ id: c.id, dir: c.dir, title: c.title, type: c.type, priority: c.priority, tags: c.tags })),
       tags: [...new Set([...normalizeTags(manifest.tags), ...kids.flatMap((c) => c.tags)])].sort((a, b) => a.localeCompare(b)),
       repositories: (manifest.repositories || []).map(describeRepository),
+      cc: (manifest.cc || []).map((c) => ({ ...c, key: ccKey(c), integration_state: 'reference_only' })),
       connections: (manifest.connections || []).map((c) => ({ ...c, integration_state: 'reference_only' })),
     };
   }

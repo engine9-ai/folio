@@ -1,6 +1,6 @@
 import { ConflictError, ValidationError } from './errors.js';
 import { normalizePath } from './fs.js';
-import { emailAttachments, looksLikeEmail, parseEmail, parseEmailHeaders, rawHeaderBlock } from './email.js';
+import { emailAddress, emailAttachments, looksLikeEmail, parseEmail, parseEmailHeaders, rawHeaderBlock } from './email.js';
 import { dataFormat, keepInFolio, summarizeData } from './data.js';
 import { describeRemoved, prohibitedIn, scrubText } from './privacy.js';
 import { parseGithubUrl, repositoryKey } from './repositories.js';
@@ -400,6 +400,12 @@ export async function addItem(folio, item, { folder, actor = { type: 'unknown' }
         if (!raw) privacy = { scanned: false, note: 'Outlook .msg files are not read, so not checked' };
       }
       await record({ kind: 'email', path, original_name: item.name, email: headers, ...(privacy ? { privacy } : {}) });
+      if (folio.onMessage) {
+        // Tell the host (it may pass the email on to the folio's CCs): the text as filed, never the held original.
+        const filed = c.format === 'eml' ? await fs.read(path) : null;
+        const text = filed ? parseEmail(filed.text)?.text || '' : '';
+        await folio.onMessage({ path, kind: 'email', at: headers.date && !Number.isNaN(Date.parse(headers.date)) ? new Date(headers.date).toISOString() : folio.now(), author: { type: 'email', id: emailAddress(headers.from) || headers.from || null, ...(actor?.id ? { forwarded_by: actor.id } : {}) }, via, subject: headers.subject || null, from: headers.from || null, to: headers.to || null, text: text.slice(0, 20000) });
+      }
     }
     const what = headers.subject ? `“${headers.subject}”` : 'the email';
     let summary = existing ? `${what} is already in this folio` : `Filed ${what} in comms`;

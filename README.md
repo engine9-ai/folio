@@ -54,6 +54,9 @@ await folio.add({ name: 'donors.csv', data: csvBytes }, { actor });             
 await bug.folio.comment('Reproduced on iOS', { actor });                           // comms/…comment.json
 await folio.post('update', 'On track for Friday', { actor });                       // comms/…update.json
 await bug.folio.comms();   // the conversation in time order: messages, emails
+await folio.addCc('Tim Thornburg <tim@pursuant.com>', { actor });                // CC a person or channel (SPEC 5.7)
+await folio.addCc('#acme-support', { actor, workspace: 'acme' });                 // a Slack channel; sms: +1..., teams:...
+await folio.receive({ channel: 'slack', address: '#acme-support' }, 'On it', { ref: 'ts-1' }); // a reply, credited to the CC
 await folio.emails();      // filed emails: headers, readable body text
 
 // Pasted text: Markdown, HTML or plain text by detection; `as` overrides; the type can be changed after.
@@ -81,6 +84,7 @@ Behaviours worth knowing:
 - **Text formats.** `detectTextFormat(text)` says Markdown, HTML or plain text (with reasons); `titleOfText` and `htmlToText` are exported. Intake items may carry `as` (`markdown`, `html`, `text`, `json`, `import`, `comment`, `update`, `file`) and `name`.
 - **Imports.** `detectImport(json)` recognises Asana, Trello and `{ folios }` exports; `folio.import()` creates folios inside the folio in one pass (ids claimed first, so dependencies can point at folios not yet written; subtasks go inside their task), records `external: { source, id, url }` on each, and writes a report to `history/imports/`.
 - **Folders all the way down.** A folder with a `folio.json` is a folio; folios can hold folios. `Folio.open(fs, { nested })` takes the nested folios' folders (or `'detect'`) and hides them through `ExcludingFs`; `nestedFolioDirs(fs)` finds them; `folio.child(dir)` opens one through `SubFs`, and `createChild` makes one (and calls the host's `onChild`). Folio's own directories (`RESERVED_DIRS`) never hold nested folios.
+- **CC is per folio** (SPEC 5.7): people and channels (email, Slack, SMS, others) in `folio.json` `cc`. The library never sends anything; delivery is a hosting add-on. Hosts learn of new messages through the `onMessage` option.
 - **No permissions in a folio.** Access rules belong to the hosting service.
 - `NodeFs` overwrites are check-then-write; protect against other processes writing the same folder yourself.
 

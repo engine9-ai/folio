@@ -1,4 +1,5 @@
 import { validateRepositories } from './repositories.js';
+import { validateCc } from './cc.js';
 import { FOLIO_PRIORITIES, FOLIO_TYPES, RELATIONSHIP_TYPES, isFolioId } from './relations.js';
 
 export const FORMAT = 'folio';
@@ -85,5 +86,6 @@ export function validateManifest(m) {
       });
   }
   problems.push(...validateRepositories(m.repositories));
+  problems.push(...validateCc(m.cc));
   return problems;
 }

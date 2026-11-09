@@ -1,6 +1,7 @@
 import { ValidationError } from './errors.js';
 import { parseEmail } from './email.js';
 import { scrubText } from './privacy.js';
+import { authorChannel, ccKey, findCc } from './cc.js';
 
 /**
  * Communications: every piece of back-and-forth about the work lives in ONE folder, `comms/`, whatever it is.
@@ -18,8 +19,11 @@ import { scrubText } from './privacy.js';
  * compress. A message refers to assets by path.
  *
  * A message file (.comment/.update/.agent/.chat .json):
- *   { "at", "kind", "author": { type, id, on_behalf_of? }, "via", "text",
- *     "attachments"?: [paths], "imported"?: { source, author, at } }
+ *   { "at", "kind", "author": { type, id, name?, on_behalf_of?, channel?, workspace? }, "via", "text",
+ *     "attachments"?: [paths], "imported"?: { source, author, at }, "ref"?: { channel, id } }
+ *
+ * `author.channel` says the message came in over a channel (a Slack reply, an SMS) from one of the folio's CCs
+ * (cc.js); `ref` is that channel's own id for the message, so a second delivery of it is not stored twice.
  */
 
 export const COMMS_DIR = 'comms';
@@ -63,7 +67,7 @@ export function messageName(at, text, kind) {
  * Write a message to comms/. Text is scrubbed of card numbers and credentials (spec 3.7). Returns
  * { path, message, removed? }.
  */
-export async function postMessage(folio, { kind = 'comment', text, attachments = [], actor, via = 'folio-lib', at = null, imported = null }) {
+export async function postMessage(folio, { kind = 'comment', text, attachments = [], actor, via = 'folio-lib', at = null, imported = null, ref = null }) {
   if (!MESSAGE_KINDS.includes(kind)) throw new ValidationError(`A message is one of ${MESSAGE_KINDS.join(', ')}`);
   if (!text || !String(text).trim()) throw new ValidationError('A message cannot be empty');
   const { text: clean, removed, total } = scrubText(String(text));
@@ -76,19 +80,34 @@ export async function postMessage(folio, { kind = 'comment', text, attachments =
     text: clean,
     ...(attachments.length ? { attachments } : {}),
     ...(imported ? { imported } : {}),
+    ...(ref ? { ref } : {}),
   };
-  const name = messageName(when, clean, kind);
+  let name = messageName(when, clean, kind);
+  if (ref) {
+    // A message from a channel carries the channel's id for it: the same message delivered again is not stored twice.
+    const h = await refHash(`${ref.channel || ''}:${ref.id}`);
+    const existing = (await folio.fs.list(COMMS_DIR)).find((p) => p.includes(`-${h}.`) && MESSAGE_FILE.test(p));
+    if (existing) return { path: existing, message: null, duplicate: true };
+    name = name.replace(`.${kind}.json`, `-${h}.${kind}.json`);
+  }
   const stem = name.slice(0, -`.${kind}.json`.length);
   for (let n = 1; n <= 200; n++) {
     const path = `${COMMS_DIR}/${n === 1 ? name : `${stem}-${n}.${kind}.json`}`;
     try {
       await folio.fs.write(path, json(message), { ifMatch: null, contentType: 'application/json' });
+      // Hosts are told about new messages (to pass them on to the folio's CCs); imported history is not news.
+      if (folio.onMessage && !imported) await folio.onMessage({ path, ...message });
       return { path, message, ...(total ? { removed } : {}) };
     } catch (e) {
       if (e?.code !== 'conflict') throw e;
     }
   }
   throw new ValidationError('Could not find a free name in comms/');
+}
+
+async function refHash(s) {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(s))));
+  return [...d.slice(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /** Where emails are: comms/ now, sources/email/ in folios written before comms/ existed. */
@@ -99,9 +118,9 @@ export const isEmailPath = (p) => EMAIL_FILE.test(p) && EMAIL_DIRS.some((d) => p
  * The conversation, newest last: every message in comms/, emails (also from the older sources/email/), and
  * comments recorded as ticket events by earlier versions. Each item:
  *   { kind, path, at, author, text, ticket?, subject?, from?, to?, truncated? }
- * `ticket` keeps one ticket's messages (and emails linked from it). `limit` keeps the newest.
+ * `cc` (the folio's CC list) marks messages that came from a CC with `cc: <its key>`. `limit` keeps the newest.
  */
-export async function readComms(folio, { limit = 200, maxChars = 4000, read } = {}) {
+export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc = [] } = {}) {
   const fs = folio.fs;
   const paths = [...new Set([...(await fs.list(COMMS_DIR)), ...(await fs.list('sources/email'))])].filter((p) => commsKindOf(p) && (p.startsWith(`${COMMS_DIR}/`) ? !p.slice(COMMS_DIR.length + 1).includes('/') : isEmailPath(p)));
   const files = await read(paths, (p) => (/\.msg$/i.test(p) ? null : fs.read(p)));
@@ -130,6 +149,16 @@ export async function readComms(folio, { limit = 200, maxChars = 4000, read } = 
     const text = String(m.text || '');
     items.push({ kind, path, at: m.at || dateFromName(path), author: m.author || { type: 'unknown' }, via: m.via, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(m.attachments ? { attachments: m.attachments } : {}), ...(m.imported ? { imported: m.imported } : {}) });
   }
+  // Credit messages from the folio's CCs: an email from a CC'd address, a reply from a CC'd Slack channel.
+  if (cc.length)
+    for (const it of items) {
+      const from = authorChannel(it.kind === 'email' ? { type: 'email', id: it.from } : it.author);
+      const hit = from && findCc(cc, from);
+      if (hit) {
+        it.cc = ccKey(hit);
+        if (hit.name && !it.author.name) it.author = { ...it.author, name: hit.name };
+      }
+    }
   items.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')) || a.path.localeCompare(b.path));
   return limit && items.length > limit ? items.slice(-limit) : items;
 }

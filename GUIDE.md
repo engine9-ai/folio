@@ -40,6 +40,7 @@ forwarding, `folio add`, or MCP `add_to_folio`) and the folio files it (SPEC 8.6
 | An email | `comms/`, as received (but see "What a folio must not hold") |
 | A data file or log (CSV, TSV, JSON records, JSON Lines, `.log`, spreadsheets, database dumps) | A **summary** in `sources/data/`; the file itself goes to temporary storage (see "Data files and logs") |
 | A comment, a status update, an agent's report | `comms/`, next to the emails: one folder holds the whole conversation, in time order; the extension (`.comment.json`, `.update.json`, `.agent.json`, `.eml`) says what each is |
+| Someone to keep informed (a client contact, a Slack channel, a phone for texts) | **CC** on the folio (`folio.json` `cc`). Replies that come back from them are credited to them. Whether they are actually sent messages depends on the deployment |
 | Any other file | `attachments/`, or the folder it was dropped on |
 | A link | `sources/links/` |
 | Text (typed, or pasted from a chat, a document, an email) | A new file in `notes/` (or the folder it was added in): `.md` if it is Markdown, `.html` if it is HTML, `.txt` otherwise. Short text can be posted as a comment instead |

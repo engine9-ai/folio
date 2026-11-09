@@ -3,6 +3,8 @@
 
 > **Status.** This is the working specification as finalised in the 2 November 2026 product conversation. It supersedes the earlier draft. It remains a living document: where a decision here conflicts with an earlier idea, this document wins. Scope for the first release is in [section 19](#19-version-1-scope-and-deferred-work).
 >
+> **Changes on 9 November 2026 (CC):** every folio keeps its own **CC list** of people and channels kept informed: email addresses, Slack channels and people, phone numbers for SMS, or any other channel (5.7). The list lives in `folio.json`; **delivering** to it is an optional add-on of each hosting deployment, configured there and never in the folio. A message that comes back from a CC is credited to that person or channel (3.1.2).
+>
 > **Changes on 7 November 2026:** a content policy (3.7) with [GUIDE.md](GUIDE.md) as its user guide: no credentials, card, bank or Social Security numbers; client contacts are fine, other people's personal data is anonymised; code is referenced, not copied. Data files and logs are summarised, with personal data masked by `@engine9/pii-classifier`, and the originals held in temporary storage (8.4.1). Repository entries may record `references` to releases, pull requests, issues and commits (3.2.1).
 >
 > **Changes in 1.0 (9 November 2026):** **tickets are gone; work is folios inside folios** (5). Type, priority, tags, owner, blockers and readiness are fields of every folio (5.1, 5.2); every change to `folio.json` is recorded (5.4); existing tickets are converted by `upgradeLayout` (5.6); imports create folios (4.4.1).
@@ -166,7 +168,7 @@ The directory layout is a convention rather than a rigid empty scaffold. Only `f
 | `*.chat.json` | A captured chat thread (Slack and the like) |
 | `*.summary.md` | A summary that stands in for the messages before its date |
 
-A message file is JSON: `{ "at", "kind", "author": { "type", "id", "on_behalf_of"? }, "via", "text", "attachments"?: [paths], "imported"? }`. Messages are written once and never edited, so they need no locking and never conflict with edits to `folio.json`.
+A message file is JSON: `{ "at", "kind", "author": { "type", "id", "name"?, "on_behalf_of"?, "channel"?, "workspace"? }, "via", "text", "attachments"?: [paths], "imported"?, "ref"? }`. A message that came in over a channel from one of the folio's CCs (5.7) is credited to it: `author` is `{ "type": "person" | "channel", "channel", "id": <its address>, "name"? }`, and `ref` is the channel's own id for the message (`{ channel, id }`), so a second delivery is not stored twice. Messages are written once and never edited, so they need no locking and never conflict with edits to `folio.json`.
 
 **Files are assets and live apart**, in `attachments/`; a message refers to them by path. Keeping the conversation in one folder of small files makes it easy to read, search, summarise and compress (older messages can be replaced by a `*.summary.md`), without visiting a folder per kind of message.
 
@@ -392,6 +394,7 @@ The fields that matter for tracking work all live in `folio.json`:
 | `relationships` | `[{ type, target }]` to other folios, by folio id (5.2). |
 | `links` | Evidence elsewhere: `{ type, label, url \| path }`. |
 | `external`, `aliases` | Where an imported folio came from (`{ source, id, url }`), and older identifiers it answered to (such as `TK-001`). |
+| `cc` | People and channels kept informed about this folio (5.7). |
 
 Longer explanation goes in the folio's `README.md`. Priority and status are not inferred from a message's tone; people set them, and every change is attributable (5.4).
 
@@ -436,6 +439,33 @@ A folio can be created from an email, a feedback response, a document, an artifa
 ### 5.6 Folios written with tickets
 
 Folios written before 1.0 kept tickets in `tickets/TK-NNN/`. `folio.upgradeLayout()` converts each into a folio inside the folio (a ticket with a parent goes inside its parent's folio), keeping its fields, description (as `README.md`), comments (in its `comms/`), linked emails and files, attachments and event history, and its old id in `aliases`. Old statuses map as `open` → `backlog`, `in_progress` → `active`, `blocked` → `waiting`, `resolved` → `review`, `closed` → `completed`, `cancelled` → `archived`. `tickets/` is then removed. Validation warns about a folio that still has one.
+
+### 5.7 CC: people and channels kept informed
+
+Every folio has its own **CC list**, like the CC line of a help-desk ticket but not tied to email. It names who hears about the folio's conversation, wherever they are:
+
+| Channel | Address | Typed as |
+|---|---|---|
+| `email` | an email address (a person, or a list) | `tim@pursuant.com`, `Tim Thornburg <tim@pursuant.com>` |
+| `slack` | a channel (`#name` or its id) or a person (`@name` or its id), optionally with the `workspace` | `#acme-support`, `@tim`, `slack:C0123ABCD` |
+| `sms` | a phone number | `+1 202 555 0142` |
+| any other word | whatever that channel uses | `teams:Support`, `whatsapp:+44…` |
+
+It is stored in `folio.json`:
+
+```json
+"cc": [
+  { "channel": "email", "address": "tim@pursuant.com", "name": "Tim Thornburg", "kind": "person", "added_at": "…", "added_by": "chris@frakture.com" },
+  { "channel": "slack", "address": "#fbcenc", "workspace": "pursuant", "kind": "channel" },
+  { "channel": "sms", "address": "+12025550142", "name": "Joe McLaughlin", "kind": "person" }
+]
+```
+
+- **Per folio.** A folio inside another has its own list; nothing is inherited. Adding or removing a CC is a change to `folio.json` and recorded like any other (5.4). `folio.addCc()`, `removeCc()` and `ccs()` manage it; duplicates (same channel and address, ignoring case) are not added twice.
+- **A reference, not a connection.** Like a repository listing (3.2.1), a CC list works with no integration, and nothing in the folio sends anything. **Delivery is an optional add-on of each hosting deployment**, configured on the host, never in the folio (3.5, 10.3): a copied folio keeps its CC list without gaining the ability to message anyone. Hosts show each entry's live state (delivered on this deployment, or listed only); in the portable library every entry reads as `reference_only`.
+- **What a host passes on.** When delivery is set up, each new message in `comms/` (comments, updates, agents' reports, emails filed there) is passed to the add-on with the folio's CC list, leaving out the CC the message came from. Imported history is not passed on.
+- **Replies are credited.** A message that comes back from a CC (a Slack reply, an SMS, an email from a CC'd address) is posted to `comms/` credited to that person or channel (3.1.2) via `folio.receive()`. Only listed CCs may post this way. In the conversation, messages from CCs are marked with the CC they came from.
+- CC addresses are client and account contacts (3.7(3)); they are not secrets, and no credential or token for a channel belongs in the list.
 
 ---
 
@@ -763,7 +793,7 @@ A folio opens as itself, like a case in a help desk or a task in Asana, not as a
 - Title, state (with the reason when it is blocked, waiting or a draft) and Mark Done.
 - Description, files (attachments and notes), and the folios inside it (sub-tickets), with a one-line add.
 - The whole conversation from `comms/` (emails, comments, updates, agents' reports) in time order, with a composer that takes text and files.
-- A details column: status, type, priority, owner, target date, tags, what it waits on, its email address, repositories, recent changes and sharing.
+- A details column: status, type, priority, owner, target date, tags, what it waits on, **CC** (people and channels, each showing whether this deployment delivers to it), its email address, repositories, recent changes and sharing.
 
 Everything is edited in place, and anything dropped on the page is added to the folio. Folios inside a folio are secondary: they show within it, not alongside it in lists of folios or on its folder's board (its card counts them). For a small folio this page should feel simple rather than empty; for a larger one it should offer a concise route to the detail without becoming a dashboard requiring constant maintenance.
 
@@ -902,6 +932,7 @@ A successful folio stands on its own. The hosted application provides a pleasant
 |---|---|---|
 | Email forwarding (8.1) | Built; needs switching on | Cloudflare Email Routing on the intake domain with a catch-all rule sending to the `folio` Worker. **The owner sets this up in the Cloudflare dashboard.** Thread matching for replies and Queues for heavy processing come later. |
 | Slack capture (8.2) | Version 2 | A Slack app and workspace authorisation. |
+| CC delivery (5.7) | Optional add-on per deployment | The CC list, its UI and crediting of replies are built. Sending to email, Slack or SMS is a separate add-on each deployment configures (folio-server's DEPLOY.md, "CC delivery"). |
 | Automated GitHub retrieval | Not planned for v1 | Repository listing (3.2.1) is complete without it. |
 | Static website previews (7.3) | Blocked on a TODO | A separate registrable preview domain (see 7.4). |
 | Feedback forms, artifacts and decisions in the browser UI | After v1 core | The formats are specified and have examples; the interface follows. |
