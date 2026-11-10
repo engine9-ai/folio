@@ -1,7 +1,7 @@
 {
   "format": "folio",
   "format_revision": 1,
-  "id": "fol-627dc7",
+  "id": "fol-jrwdp2",
   "title": "Primary button overlaps password field on mobile",
   "status": "backlog",
   "created_at": "2026-09-02T15:00:00.000Z",
@@ -18,7 +18,7 @@
   "relationships": [
     {
       "type": "discovered_from",
-      "target": "fol-2pe6ry"
+      "target": "fol-7x6xhq"
     }
   ]
 }

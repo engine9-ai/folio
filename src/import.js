@@ -2,7 +2,6 @@ import { ValidationError } from './errors.js';
 import { htmlToText } from './text-format.js';
 import { FOLIO_STATUSES } from './manifest.js';
 import { FOLIO_TYPES } from './relations.js';
-import { currentType } from './legacy-names.js';
 
 /**
  * Importing work from other tools. An export (a JSON file, or JSON pasted as text) is recognised by its shape and
@@ -86,7 +85,7 @@ function asanaPlan(doc) {
     const sections = [...new Set([...(t.memberships || []).map((m) => m?.section?.name).filter(Boolean), ...(currentSection && !parentGid ? [currentSection] : [])])].filter(notSection);
     const fields = Array.isArray(t.custom_fields) ? t.custom_fields : [];
     const fieldValue = (f) => f?.enum_value?.name ?? f?.display_value ?? f?.text_value ?? f?.number_value ?? (Array.isArray(f?.multi_enum_values) ? f.multi_enum_values.map((v) => v.name).join(', ') : null);
-    const tField = fields.find((f) => /^(type|kind|category|task type)$/i.test(str(f?.name).trim()));
+    const tField = fields.find((f) => /^(type|kind|category|task type|ticket type)$/i.test(str(f?.name).trim()));
     const sField = fields.find((f) => /^status$/i.test(str(f?.name).trim()));
     const others = fields.filter((f) => f !== tField && f !== sField && fieldValue(f) !== null && fieldValue(f) !== '');
     const notes = str(t.notes).trim() || (t.html_notes ? htmlToText(t.html_notes) : '');
@@ -179,14 +178,12 @@ function folioListPlan(doc) {
     // Entries without an id get a positional key that cannot collide with a real id.
     const key = t.id ?? t.key ?? t.external?.id;
     const k = key === undefined || key === null || key === '' ? `#${i + 1}` : str(key);
-    // Folio statuses, or statuses from older versions.
-    const OLD = { open: 'backlog', in_progress: 'active', blocked: 'waiting', resolved: 'review', closed: 'completed', cancelled: 'archived' };
-    const status = OLD[t.status] || (FOLIO_STATUSES.includes(t.status) ? t.status : 'backlog');
+    const status = FOLIO_STATUSES.includes(t.status) ? t.status : statusFromLabel(t.status) || 'backlog';
     return {
       key: k,
       title: t.title,
       description: str(t.description),
-      type: typeFrom(t.type) || (t.type && /^[a-z][a-z0-9_-]{0,39}$/.test(t.type) ? currentType(t.type) : undefined),
+      type: typeFrom(t.type) || (t.type && /^[a-z][a-z0-9_-]{0,39}$/.test(t.type) ? t.type : undefined),
       status,
       ...(status === 'completed' ? { resolution: str(t.resolution) || 'completed' } : t.resolution ? { resolution: str(t.resolution) } : {}),
       tags: Array.isArray(t.tags) ? t.tags.map(str) : typeof t.tags === 'string' ? t.tags.split(',') : [],

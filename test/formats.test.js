@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FOLIO_TYPES, Folio, LEGACY_TYPES, MemoryFs, ValidationError, classify, detectTextFormat, intakeChoices, nestedFolioDirs, titleOfText } from '../src/index.js';
+import { Folio, MemoryFs, ValidationError, classify, detectTextFormat, intakeChoices, nestedFolioDirs, titleOfText } from '../src/index.js';
 
 const now = () => '2026-11-09T15:00:00.000Z';
 const actor = { type: 'user', id: 'sam@example.com' };
@@ -164,75 +164,4 @@ test('comms: one folder for all the conversation, in order; assets apart', async
   assert.equal((await folio.validate()).ok, true);
   // Comments do not change folio.json.
   assert.deepEqual((await folio.history()).map((h) => h.type), ['created']);
-});
-
-test('upgradeLayout moves an older folio: emails to comms/, uploads to attachments/', async () => {
-  const fs = new MemoryFs();
-  const folio = await Folio.init(fs, { title: 'Old', now });
-  await fs.write('sources/email/2026-11-02-hello-abcd1234.eml', 'From: a@b.example\r\nSubject: Hello\r\nDate: Mon, 02 Nov 2026 10:00:00 +0000\r\n\r\nHi\r\n');
-  await fs.write('sources/email/attachments/2026-11-02-hello-abcd1234/a.pdf', '%PDF');
-  await fs.write('sources/uploads/brief.pdf', '%PDF');
-  assert.deepEqual((await folio.comms()).map((m) => m.kind), ['email']); // older layouts still read
-  const r = await folio.upgradeLayout({ actor });
-  assert.equal(r.moved, 3);
-  assert.deepEqual(r.moves['sources/uploads/brief.pdf'], 'attachments/brief.pdf');
-  assert.equal(await fs.exists('comms/2026-11-02-hello-abcd1234.eml'), true);
-  assert.equal(await fs.exists('attachments/2026-11-02-hello-abcd1234/a.pdf'), true);
-  assert.deepEqual(await fs.list('sources'), []);
-  assert.equal((await folio.emails()).length, 1);
-  assert.equal((await folio.upgradeLayout()).moved, 0);
-});
-
-test('upgradeLayout turns work items from the older layout into folios inside the folio, keeping everything they had', async () => {
-  const fs = new MemoryFs();
-  const folio = await Folio.init(fs, { title: 'Support', now });
-  const ev = (id, revision, type, extra = {}) => fs.write(`tickets/${id}/events/${String(revision).padStart(6, '0')}.json`, JSON.stringify({ ticket: id, revision, at: `2026-11-0${revision}T10:00:00.000Z`, actor: { type: 'user', id: 'pat@x.example' }, via: 'web', type, ...extra }));
-  const ticket = (t) => fs.write(`tickets/${t.id}/ticket.json`, JSON.stringify({ type: 'support', priority: 'normal', revision: 1, created_at: '2026-11-01T10:00:00.000Z', updated_at: '2026-11-01T10:00:00.000Z', ...t }));
-  await fs.write('sources/email/2026-11-01-reset-loop-1234abcd.eml', 'From: donor-ops@client.example\r\nSubject: Reset loop\r\nDate: Sun, 01 Nov 2026 09:00:00 +0000\r\n\r\nIt loops.\r\n');
-  await ticket({ id: 'TK-001', title: 'Password reset link loops', status: 'in_progress', priority: 'high', labels: ['auth'], owner: 'sam@x.example', links: [{ type: 'source', label: 'Email: Reset loop', path: 'sources/email/2026-11-01-reset-loop-1234abcd.eml' }, { type: 'url', url: 'https://github.com/a/b/issues/3' }] });
-  await fs.write('tickets/TK-001/description.md', 'Safari only.\n');
-  await fs.write('tickets/TK-001/attachments/shot.png', 'PNG');
-  await ev('TK-001', 1, 'created');
-  await ev('TK-001', 2, 'comment', { comment: 'Reproduced on iOS' });
-  await ev('TK-001', 3, 'updated', { changes: { status: { from: 'open', to: 'in_progress' } } });
-  await ticket({ id: 'TK-002', title: 'Check iOS 18', status: 'closed', resolution: 'fixed', relationships: [{ type: 'parent', target: 'TK-001' }] });
-  await ticket({ id: 'TK-003', title: 'Release the fix', status: 'open', relationships: [{ type: 'blocked_by', target: 'TK-001' }] });
-  await ticket({ id: 'TK-004', title: 'Old idea', status: 'cancelled' });
-  const r = await folio.upgradeLayout({ actor });
-  assert.equal(r.converted.length, 4);
-  assert.match(r.summary, /Turned 4 items from the older layout into folios/);
-  assert.deepEqual(await fs.list('tickets'), []);
-  const byAlias = Object.fromEntries(r.converted.map((c) => [c.alias, c]));
-  assert.equal(byAlias['TK-001'].dir, 'password-reset-link-loops');
-  assert.equal(byAlias['TK-002'].dir, 'password-reset-link-loops/check-ios-18'); // a subtask inside its task
-  const reset = folio.child(byAlias['TK-001'].dir);
-  const m = (await reset.manifest()).manifest;
-  assert.deepEqual([m.title, m.type, m.status, m.priority, m.tags, m.owner, m.aliases], ['Password reset link loops', 'support', 'active', undefined, ['auth'], 'sam@x.example', ['TK-001']]);
-  assert.deepEqual(m.links, [{ type: 'url', url: 'https://github.com/a/b/issues/3' }]);
-  assert.equal((await reset.fs.read('README.md')).text, '# Password reset link loops\n\nSafari only.\n');
-  assert.equal(await reset.fs.exists('attachments/shot.png'), true);
-  const said = await reset.comms();
-  assert.deepEqual(said.map((x) => [x.kind, x.text || x.subject]), [['email', 'It loops.'], ['comment', 'Reproduced on iOS']]);
-  assert.equal(said[1].at, '2026-11-02T10:00:00.000Z');
-  assert.ok((await reset.history()).some((h) => h.ticket?.id === 'TK-001' && h.changes?.status?.to === 'in_progress'));
-  const release = (await folio.child(byAlias['TK-003'].dir).manifest()).manifest;
-  assert.deepEqual([release.status, release.relationships], ['backlog', [{ type: 'blocked_by', target: byAlias['TK-001'].id }]]);
-  assert.deepEqual([(await folio.child(byAlias['TK-002'].dir).manifest()).manifest.status, (await folio.child(byAlias['TK-004'].dir).manifest()).manifest.resolution], ['completed', 'cancelled']);
-  // The folio sees them as its folios; everything validates; running again does nothing.
-  const after = await Folio.open(fs, { nested: 'detect' });
-  assert.deepEqual((await after.children()).map((c) => c.title).sort(), ['Old idea', 'Password reset link loops', 'Release the fix']);
-  assert.equal((await after.validate()).ok, true);
-  assert.equal((await after.upgradeLayout()).converted.length, 0);
-});
-
-test('upgradeLayout clears a type only older versions used', async () => {
-  const fs = new MemoryFs();
-  const folio = await Folio.init(fs, { title: 'Old one', now: () => '2026-11-01T00:00:00.000Z' });
-  const m = JSON.parse((await fs.read('folio.json')).text);
-  m.type = LEGACY_TYPES[0];
-  await fs.write('folio.json', JSON.stringify(m));
-  const r = await folio.upgradeLayout();
-  assert.equal(r.retyped, true);
-  assert.equal((await folio.manifest()).manifest.type, undefined);
-  assert.ok(!FOLIO_TYPES.includes(LEGACY_TYPES[0]));
 });

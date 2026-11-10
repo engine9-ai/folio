@@ -1,4 +1,3 @@
-import { LEGACY_DIR } from './legacy-names.js';
 import { validateManifest } from './manifest.js';
 
 import { findCredentials, prohibitedIn } from './privacy.js';
@@ -43,7 +42,6 @@ export async function validateFolio(fs) {
       add('error', 'message_json', path, `Not valid JSON: ${e.message}`);
     }
   }
-  if (files.some((f) => f.startsWith(`${LEGACY_DIR}/`))) add('warning', 'legacy_layout', LEGACY_DIR, 'This folio still has work items in the layout of an earlier version. upgradeLayout() turns each into a folio inside this one.');
 
   // Links in folio.json to files inside the folio
   try {

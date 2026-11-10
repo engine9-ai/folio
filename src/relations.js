@@ -5,7 +5,7 @@
  */
 
 /** Kinds of work a folio can be. A folio may use another lowercase type of its own. */
-export const FOLIO_TYPES = ['project', 'task', 'request', 'support', 'bug', 'feature', 'review', 'investigation', 'epic'];
+export const FOLIO_TYPES = ['project', 'task', 'ticket', 'request', 'support', 'bug', 'feature', 'review', 'investigation', 'epic'];
 /** Links between folios, stored on the folio they start from. Containment (a parent) is the folder itself. */
 export const RELATIONSHIP_TYPES = ['blocked_by', 'related', 'discovered_from', 'duplicate_of', 'supersedes'];
 /** Statuses that mean the work is over: a folio blocked only by these is not blocked. */

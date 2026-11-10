@@ -29,7 +29,6 @@ const USAGE = `folio: work with folio folders
   folio retype <dir> <path> <markdown|html|text>     change a note's file type
   folio comment <dir> "text" [--kind comment|update|agent]
   folio comms <dir>                                    the conversation in time order
-  folio upgrade <dir>                                  bring an older folio up to date (comms/, attachments/, older work items -> folios)
   folio repo add <dir> <owner/name | url> [--purpose "..."] [--role primary]
   folio repo list <dir>
   folio search <dir> <text>
@@ -129,7 +128,6 @@ async function main() {
     for (const m of await folio.comms()) console.log(`${String(m.at).slice(0, 16)}  ${m.kind.padEnd(7)} ${m.subject ? `${m.subject}: ` : ''}${m.text.split('\n')[0].slice(0, 100)}`);
     return;
   }
-  if (cmd === 'upgrade') return out((await folio.upgradeLayout({ actor, via })).summary);
 
   if (cmd === 'repo') {
     const [sub, ...a] = args;

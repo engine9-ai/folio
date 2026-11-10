@@ -112,19 +112,17 @@ async function refHash(s) {
   return [...d.slice(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Where emails are: comms/ now, sources/email/ in folios written before comms/ existed. */
-export const EMAIL_DIRS = Object.freeze([COMMS_DIR, 'sources/email']);
-export const isEmailPath = (p) => EMAIL_FILE.test(p) && EMAIL_DIRS.some((d) => p.startsWith(`${d}/`) && !p.slice(d.length + 1).includes('/'));
+/** Emails are in comms/, beside the other messages. */
+export const isEmailPath = (p) => EMAIL_FILE.test(p) && p.startsWith(`${COMMS_DIR}/`) && !p.slice(COMMS_DIR.length + 1).includes('/');
 
 /**
- * The conversation, newest last: every message in comms/, emails (also from the older sources/email/), and
- * comments recorded by earlier versions. Each item:
+ * The conversation, newest last: every message and email in comms/. Each item:
  *   { kind, path, at, author, text, subject?, from?, to?, truncated? }
  * `cc` (the folio's CC list) marks messages that came from a CC with `cc: <its key>`. `limit` keeps the newest.
  */
 export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc = [] } = {}) {
   const fs = folio.fs;
-  const paths = [...new Set([...(await fs.list(COMMS_DIR)), ...(await fs.list('sources/email'))])].filter((p) => commsKindOf(p) && (p.startsWith(`${COMMS_DIR}/`) ? !p.slice(COMMS_DIR.length + 1).includes('/') : isEmailPath(p)));
+  const paths = (await fs.list(COMMS_DIR)).filter((p) => commsKindOf(p) && !p.slice(COMMS_DIR.length + 1).includes('/'));
   const files = await read(paths, (p) => (/\.msg$/i.test(p) ? null : fs.read(p)));
   const items = [];
   for (const [i, path] of paths.entries()) {

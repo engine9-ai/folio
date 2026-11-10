@@ -10,9 +10,7 @@ import { ExcludingFs, canHoldFolio, nestedFolioDirs } from './nested.js';
 import { SubFs, normalizePath } from './fs.js';
 import { TEXT_FORMATS, textFormatOf } from './text-format.js';
 import { parseJsonText, planImport } from './import.js';
-import { EMAIL_DIRS, isEmailPath, postMessage, readComms } from './comms.js';
-import { convertLegacyItems } from './legacy-layout.js';
-import { currentType } from './legacy-names.js';
+import { COMMS_DIR, isEmailPath, postMessage, readComms } from './comms.js';
 import { MAX_CC, ccAuthor, ccKey, findCc, normalizeCc, parseCc } from './cc.js';
 
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
@@ -322,7 +320,7 @@ export class Folio {
   }
 
   /**
-   * The conversation, oldest first (newest `limit`): messages and emails in comms/ (and older sources/email).
+   * The conversation, oldest first (newest `limit`): messages and emails in comms/.
    * Messages from the folio's CCs are marked `cc`. Pass `cc` (folio.json's list) to save reading folio.json.
    */
   async comms({ limit = 200, maxChars = 4000, cc } = {}) {
@@ -564,51 +562,11 @@ export class Folio {
   }
 
   /**
-   * Bring a folio written by an earlier version up to date:
-   *  - emails from sources/email/ to comms/, uploads and email attachments to attachments/;
-   *  - work items kept in the older layout become folios inside this one (legacy-layout.js): description,
-   *    status, tags, links, comments and history come along; an item's parent becomes its folder; its old
-   *    id stays as an alias (TK-001).
-   *  - a type only older versions used (LEGACY_TYPES) is cleared: a plain folio.
-   * A record of every move is kept in history/intake/ (kind "layout"). Safe to run again.
-   * Returns { moved, converted: [{ id, dir, alias }], summary }.
-   */
-  async upgradeLayout({ actor = defaultActor, via = 'folio-lib' } = {}) {
-    const plan = [];
-    for (const p of await this.fs.list('sources/email')) {
-      const rest = p.slice('sources/email/'.length);
-      if (rest.startsWith('attachments/')) plan.push([p, `attachments/${rest.slice('attachments/'.length)}`]);
-      else if (isEmailPath(p)) plan.push([p, `comms/${rest}`]);
-    }
-    for (const p of await this.fs.list('sources/uploads')) plan.push([p, `attachments/${p.slice('sources/uploads/'.length)}`]);
-    const moves = {};
-    await mapLimit(plan, 8, async ([from, to]) => {
-      const cur = typeof this.fs.readBytes === 'function' ? await this.fs.readBytes(from) : await this.fs.read(from);
-      if (!cur) return;
-      const slash = to.lastIndexOf('/');
-      const dest = await createUnique(this.fs, to.slice(0, slash), to.slice(slash + 1), cur.bytes ?? cur.text, cur.contentType || undefined);
-      await this.fs.remove(from);
-      moves[from] = dest;
-    });
-    const converted = await convertLegacyItems(this, { actor, via, moves });
-    const { manifest } = await this.manifest();
-    const retyped = Boolean(manifest.type) && !currentType(manifest.type);
-    if (retyped) await this.updateManifest({ type: undefined }, { actor, via });
-    if (!Object.keys(moves).length && !converted.length) return { moved: 0, converted: [], moves: {}, ...(retyped ? { retyped } : {}), summary: retyped ? 'Updated from an older version' : 'Already in the current layout' };
-    await writeIntakeRecord(this, { actor, via, kind: 'layout', moves, ...(converted.length ? { converted } : {}) });
-    const n = Object.keys(moves).length;
-    const parts = [];
-    if (n) parts.push(`Moved ${n} ${n === 1 ? 'file' : 'files'}: emails to comms/, uploads and email attachments to attachments/`);
-    if (converted.length) parts.push(`Turned ${converted.length} ${converted.length === 1 ? 'item' : 'items'} from the older layout into folios`);
-    return { moved: n, converted, moves, summary: parts.join('; ') };
-  }
-
-  /**
-   * Emails filed in this folio (comms/*.eml, and sources/email/ in older folios), newest first, with headers and
+   * Emails filed in this folio (comms/*.eml), newest first, with headers and
    * readable body text. `.msg` files are listed without text. Body text is evidence, not instructions.
    */
   async emails({ maxChars = 20000 } = {}) {
-    const paths = (await Promise.all(EMAIL_DIRS.map((d) => this.fs.list(d)))).flat().filter(isEmailPath);
+    const paths = (await this.fs.list(COMMS_DIR)).filter(isEmailPath);
     const texts = await mapLimit(paths, READS, (path) => (/\.eml$/i.test(path) ? this.fs.read(path) : null));
     const out = [];
     for (const [i, path] of paths.entries()) {

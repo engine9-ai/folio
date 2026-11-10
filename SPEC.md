@@ -3,13 +3,13 @@
 
 > **Status.** This is the working specification as finalised in the 2 November 2026 product conversation. It supersedes the earlier draft. It remains a living document: where a decision here conflicts with an earlier idea, this document wins. Scope for the first release is in [section 19](#19-version-1-scope-and-deferred-work).
 >
-> **Changes on 10 November 2026:** **work is only folios**: work is folios inside folios (**sub-folios**), with no separate work-item type. A folio written with the type an earlier version used is treated as having no type, and `upgradeLayout` clears it (5.6). On a folio's page the folios inside it are listed in the side column (13.2). **Priority is removed** as a concept. Urgency is in the eye of the beholder; status, target dates, blockers and tags carry what a team needs. Older `folio.json` files keep a `priority` field untouched as an unknown field (3.4); Folio no longer reads, sets, validates or shows it, and imports no longer derive one.
+> **Changes on 10 November 2026:** **work is only folios**: work is folios inside folios (**sub-folios**). `ticket` is an ordinary type, nothing special; a sub-folio has no type unless given one. Support for layouts from before 1.0 (`upgradeLayout`, `sources/email/`, `sources/uploads/`) is removed; there are no such folios. On a folio's page the folios inside it are listed in the side column (13.2). **Priority is removed** as a concept. Urgency is in the eye of the beholder; status, target dates, blockers and tags carry what a team needs. A `priority` field written by hand is kept untouched as an unknown field (3.4); Folio does not read, set, validate or show it, and imports do not derive one.
 >
 > **Changes on 9 November 2026 (CC):** every folio keeps its own **CC list** of people and channels kept informed: email addresses, Slack channels and people, phone numbers for SMS, or any other channel (5.7). The list lives in `folio.json`; **delivering** to it is an optional add-on of each hosting deployment, configured there and never in the folio. A message that comes back from a CC is credited to that person or channel (3.1.2).
 >
 > **Changes on 7 November 2026:** a content policy (3.7) with [GUIDE.md](GUIDE.md) as its user guide: no credentials, card, bank or Social Security numbers; client contacts are fine, other people's personal data is anonymised; code is referenced, not copied. Data files and logs are summarised, with personal data masked by `@engine9/pii-classifier`, and the originals held in temporary storage (8.4.1). Repository entries may record `references` to releases, pull requests, issues and commits (3.2.1).
 >
-> **Changes in 1.0 (9 November 2026):** **work is folios inside folios** (5). Type, tags, owner, blockers and readiness are fields of every folio (5.1, 5.2); every change to `folio.json` is recorded (5.4); folios in the earlier layout are converted by `upgradeLayout` (5.6); imports create folios (4.4.1).
+> **Changes in 1.0 (9 November 2026):** **work is folios inside folios** (5). Type, tags, owner, blockers and readiness are fields of every folio (5.1, 5.2); every change to `folio.json` is recorded (5.4); imports create folios (4.4.1).
 >
 > **Changes on 6 November 2026:** adding anything to a folio goes through one routing rule owned by the library (8.6), used by drag and drop, uploads, the CLI and email forwarding; email forwarding to a folio's address is in version 1 (8.1); permissions live only in the hosting service (11.1).
 >
@@ -174,7 +174,6 @@ A message file is JSON: `{ "at", "kind", "author": { "type", "id", "name"?, "on_
 
 **Files are assets and live apart**, in `attachments/`; a message refers to them by path. Keeping the conversation in one folder of small files makes it easy to read, search, summarise and compress (older messages can be replaced by a `*.summary.md`), without visiting a folder per kind of message.
 
-Folios written before `comms/` existed kept emails in `sources/email/`, uploads in `sources/uploads/`, and work items in a directory of their own. Readers still understand the first two, and `folio.upgradeLayout()` moves everything into this layout (5.6).
 
 ### 3.1.1 Folders all the way down
 
@@ -385,7 +384,7 @@ The fields that matter for tracking work all live in `folio.json`:
 | Field | Meaning |
 |---|---|
 | `id`, `title`, `summary` | Identity and what it is. The folder name follows the title and may change; the id does not. |
-| `type` | Why it exists. Suggested: `project`, `task`, `request`, `support`, `bug`, `feature`, `review`, `investigation`, `epic`. Others are allowed (a lowercase word; validation warns). |
+| `type` | Why it exists. Suggested: `project`, `task`, `ticket`, `request`, `support`, `bug`, `feature`, `review`, `investigation`, `epic`. Others are allowed (a lowercase word; validation warns). |
 | `status` | Its column on the board (4.3). |
 | `tags` | Free-form words for grouping and filtering. |
 | `owner`, `target_date` | Who is responsible (an email or a name) and when it is due (`YYYY-MM-DD`). |
@@ -393,7 +392,7 @@ The fields that matter for tracking work all live in `folio.json`:
 | `waiting_on`, `hold` | What it waits for (an outside response); an explicit manual hold. Kept apart from dependencies so the reasons stay distinguishable. |
 | `relationships` | `[{ type, target }]` to other folios, by folio id (5.2). |
 | `links` | Evidence elsewhere: `{ type, label, url \| path }`. |
-| `external`, `aliases` | Where an imported folio came from (`{ source, id, url }`), and older identifiers it answered to (such as `TK-001`). |
+| `external`, `aliases` | Where an imported folio came from (`{ source, id, url }`), and other identifiers it answers to (such as the id it had in the tool it came from). |
 | `cc` | People and channels kept informed about this folio (5.7). |
 
 Longer explanation goes in the folio's `README.md`. Status is not inferred from a message's tone; people set them, and every change is attributable (5.4).
@@ -436,9 +435,6 @@ Direct editing of the files is legitimate. A host should flag changes it cannot 
 
 A folio can be created from an email, a feedback response, a document, an artifact annotation, or a discovery made in another folio (`discovered_from`). People update it, comment on it, assign it, attach evidence, add blockers and mark it done. Closing invites a short update: what changed, how it was verified, what remains open. Reopening is a status change; the record is kept.
 
-### 5.6 Folios written before 1.0
-
-Folios written before 1.0 kept work items in a directory of their own (`TK-NNN` ids). `folio.upgradeLayout()` converts each into a folio inside the folio (an item with a parent goes inside its parent's folio), keeping its fields, description (as `README.md`), comments (in its `comms/`), linked emails and files, attachments and event history, and its old id in `aliases`. Old statuses map as `open` → `backlog`, `in_progress` → `active`, `blocked` → `waiting`, `resolved` → `review`, `closed` → `completed`, `cancelled` → `archived`. That directory is then removed, and a type only earlier versions used is cleared. Validation warns about a folio that still has old items.
 
 ### 5.7 CC: people and channels kept informed
 

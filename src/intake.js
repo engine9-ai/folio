@@ -302,7 +302,7 @@ export async function createUnique(fs, dir, name, data, contentType) {
 function fileDestination({ folder }) {
   if (folder) {
     const clean = normalizePath(folder);
-    if (clean === 'comms' || clean.startsWith('comms/') || clean === 'sources/email' || clean === 'history' || clean.startsWith('history/')) return { dir: 'attachments' };
+    if (clean === 'comms' || clean.startsWith('comms/') || clean === 'history' || clean.startsWith('history/')) return { dir: 'attachments' };
     return { dir: clean };
   }
   return { dir: 'attachments' };
@@ -369,7 +369,7 @@ export async function addItem(folio, item, { folder, actor = { type: 'unknown' }
     const bytes = toBytes(item.data ?? item.text);
     const headers = c.format === 'eml' ? parseEmailHeaders(peek(bytes, 65536)) || {} : {};
     const h = await shortHash(headers.message_id ? headers.message_id.trim() : bytes);
-    const existing = [...(await fs.list('comms')), ...(await fs.list('sources/email'))].find((p) => isEmailPath(p) && p.includes(`-${h}.`));
+    const existing = (await fs.list('comms')).find((p) => isEmailPath(p) && p.includes(`-${h}.`));
     let path = existing;
     let privacy = null;
     const extra = [];

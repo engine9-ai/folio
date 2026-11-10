@@ -15,7 +15,7 @@ Use a folio to:
 - **Collect the request and the correspondence.** Forward or drag client emails in; they are kept as
   received, with their senders and recipients.
 - **Break the work down into folios inside the folio.** A bug, a request, a review, a phase: each is a
-  folio of its own (a sub-folio, of type `task`, `bug`, `support`...), with status, owner, tags, blockers, its
+  folio of its own (a sub-folio, of type `task`, `ticket`, `bug`, `support`...), with status, owner, tags, blockers, its
   own conversation and files, its own email address, and a history of every change. There is no separate
   kind of work item: everything is a folio.
 - **Keep the evidence.** Screenshots, documents, meeting notes, links, and summaries of the data and logs

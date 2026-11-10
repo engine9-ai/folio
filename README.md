@@ -66,8 +66,6 @@ await folio.setTextFormat(note.path, 'html', { actor });                      //
 // Exports from other tools become folios inside this one; importing again skips what is already there.
 await folio.import(asanaJson, { actor });                                     // or folio.add({ name: 'x.json', data })
 
-// Folios written before 1.0: convert their work items into folios inside the folio.
-await folio.upgradeLayout({ actor });               // also moves sources/email → comms, uploads → attachments
 ```
 
 Behaviours worth knowing:

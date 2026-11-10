@@ -59,7 +59,6 @@ test('detectImport recognises Asana, Trello and Folio lists, and nothing else', 
   assert.equal(detectImport({ data: ASANA.data[1] }).format, 'asana'); // one task from the API
   assert.equal(detectImport({ cards: [{ id: 'c1', name: 'A', idList: 'l1' }], lists: [{ id: 'l1', name: 'To do' }] }).format, 'trello');
   assert.equal(detectImport({ folios: [{ title: 'A' }] }).format, 'folio-list');
-  assert.equal(detectImport({ tickets: [{ title: 'A' }] }), null); // the shape before 1.0 is no longer read
   assert.equal(detectImport([{ id: 1, email: 'a@b.example' }]), null);
   assert.equal(detectImport({ data: [{ gid: '1', name: 'x' }] }), null); // gid and name alone are not enough
   assert.equal(detectImport({ setting: true }), null);
@@ -157,13 +156,13 @@ test('dropping or pasting an export imports it; "as" keeps it as a file instead'
   assert.throws(() => classify({ text: '{"a":1}', as: 'import' }), /not an export Folio can import/);
 });
 
-test('a Folio list: statuses, custom types, blockers by key, and statuses from older versions', async () => {
+test('a Folio list: statuses, types (ticket among them), custom types and blockers by key', async () => {
   const { folio, fs } = await make();
-  await folio.import({ folios: [{ id: 'a', title: 'One', type: 'research-spike' }, { id: 'b', title: 'Two', status: 'closed', blocked_by: ['a'] }, { title: 'Three', status: 'review' }] }, { actor });
+  await folio.import({ folios: [{ id: 'a', title: 'One', type: 'research-spike' }, { id: 'b', title: 'Two', type: 'Tickets', status: 'completed', blocked_by: ['a'] }, { title: 'Three', status: 'review' }] }, { actor });
   const all = await kids(fs);
   const get = (t) => all.find((d) => d.manifest.title === t).manifest;
   assert.equal(get('One').type, 'research-spike');
-  assert.deepEqual([get('Two').status, get('Two').resolution, get('Two').relationships], ['completed', 'completed', [{ type: 'blocked_by', target: get('One').id }]]);
+  assert.deepEqual([get('Two').type, get('Two').status, get('Two').resolution, get('Two').relationships], ['ticket', 'completed', 'completed', [{ type: 'blocked_by', target: get('One').id }]]);
   assert.equal(get('Three').status, 'review');
 });
 

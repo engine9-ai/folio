@@ -1,7 +1,7 @@
 {
   "format": "folio",
   "format_revision": 1,
-  "id": "fol-2pe6ry",
+  "id": "fol-7x6xhq",
   "title": "New sign-in and account page design",
   "status": "review",
   "created_at": "2026-09-02T05:00:00.000Z",
@@ -11,7 +11,7 @@
   "relationships": [
     {
       "type": "blocked_by",
-      "target": "fol-627dc7"
+      "target": "fol-jrwdp2"
     }
   ]
 }
