@@ -1,13 +1,12 @@
 {
   "format": "folio",
   "format_revision": 1,
-  "id": "fol-2py96q",
+  "id": "fol-mc3czn",
   "title": "Primary button overlaps password field on mobile",
   "status": "backlog",
   "created_at": "2026-09-02T15:00:00.000Z",
   "updated_at": "2026-09-02T15:00:00.000Z",
   "type": "bug",
-  "priority": "high",
   "outcome": "Button and field never overlap at 390px width.",
   "links": [
     {
@@ -19,7 +18,7 @@
   "relationships": [
     {
       "type": "discovered_from",
-      "target": "fol-5z2cxd"
+      "target": "fol-8rsvaa"
     }
   ]
 }

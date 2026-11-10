@@ -1,5 +1,5 @@
 export { EDITABLE, Folio, externalOf, mapLimit } from './folio.js';
-export { DONE_STATUSES, FOLIO_PRIORITIES, FOLIO_TYPES, READINESS_STATES, RELATIONSHIP_TYPES, findCycle, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
+export { DONE_STATUSES, FOLIO_TYPES, READINESS_STATES, RELATIONSHIP_TYPES, findCycle, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
 export { convertTickets } from './legacy-tickets.js';
 export { INTAKE_AS, INTAKE_KINDS, classify, intakeChoices, repositoryFromUrl, safeName, slugify, urlsIn } from './intake.js';
 export { TEXT_FORMATS, detectTextFormat, htmlToText, textFormatOf, titleOfText } from './text-format.js';

@@ -12,17 +12,17 @@
       "from": [
         {
           "type": "blocked_by",
-          "target": "fol-5z2cxd"
+          "target": "fol-8rsvaa"
         }
       ],
       "to": [
         {
           "type": "blocked_by",
-          "target": "fol-5z2cxd"
+          "target": "fol-8rsvaa"
         },
         {
           "type": "blocked_by",
-          "target": "fol-xpm3mx"
+          "target": "fol-59ty84"
         }
       ]
     }

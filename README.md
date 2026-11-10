@@ -15,7 +15,7 @@ Not yet on npm. Until then, depend on the repository (`"@engine9/folio": "github
 ```bash
 node bin/folio.js init ./my-folio --title "Broken donation form"
 node bin/folio.js repo add ./my-folio engine9-ai/folio-server --purpose "Server" --role primary
-node bin/folio.js new ./my-folio --title "Donate button spins" --type bug --priority urgent   # a folio inside the folio
+node bin/folio.js new ./my-folio --title "Donate button spins" --type bug   # a folio inside the folio
 node bin/folio.js relate ./my-folio/release-the-fix blocked_by fol-ab12cd
 node bin/folio.js set ./my-folio/donate-button-spins --status active --owner robin@example.com
 node bin/folio.js list ./my-folio         # the folios inside it, with status and readiness
@@ -38,10 +38,10 @@ const folio = await Folio.open(new NodeFs('./examples/website-refresh'), { neste
 const actor = { type: 'user', id: 'sam@example.com' };
 
 // Work is folios inside folios. A ticket is a folio of type 'ticket'.
-const bug = await folio.createChild({ title: 'Donate button spins', type: 'bug', priority: 'urgent' }, { actor });
+const bug = await folio.createChild({ title: 'Donate button spins', type: 'bug' }, { actor });
 await bug.folio.edit({ status: 'active', owner: 'robin@example.com', tags: 'payments, safari' }, { actor });
 await bug.folio.relate('blocked_by', 'fol-ab12cd', { actor });
-const kids = await folio.children();                // [{ dir, id, title, type, status, priority, tags, readiness }]
+const kids = await folio.children();                // [{ dir, id, title, type, status, tags, readiness }]
 const { folios, ready } = await folio.overview();    // counts by readiness, and what could be started now
 await folio.history();                               // every change to folio.json: who, when, from → to
 const { ok, problems } = await folio.validate();
@@ -80,7 +80,7 @@ Behaviours worth knowing:
 - **Content policy lives here too** (SPEC 3.7, [GUIDE.md](GUIDE.md)). Intake removes credentials and card, bank and Social Security numbers from text, refuses key files, skips `.git`/`node_modules`, and summarises data files and logs (`summarizeData`, using [`@engine9/pii-classifier`](https://github.com/engine9-ai/pii-classifier)) into `sources/data/` instead of storing them. The originals go to the `hold` you pass to `Folio.open(fs, { hold })` (folio-server: R2; CLI: `LocalHold`, `~/.folio/hold`). `scrubText(text)` and `prohibitedIn(text)` are exported for hosts.
 - **Intake routing lives here.** `folio.add(item, { folder })` recognises repositories, emails, links, text and files and puts each in the right place, with provenance under `history/intake/`. Hosts (the browser, email forwarding, MCP, the CLI) only hand items over.
 - **Binary files.** `write(path, data)` takes a string or a `Uint8Array`; stores may add `readBytes(path)`. Manifest and message files stay JSON text.
-- **Every folio carries** `type`, `priority`, `tags`, `owner`, `target_date`, `outcome`, `resolution`, `waiting_on`, `hold`, `relationships`, `links`, `external` and `aliases` (SPEC 5.1). `EDITABLE` lists what `edit()` accepts; custom types and statuses are allowed with a warning.
+- **Every folio carries** `type`, `tags`, `owner`, `target_date`, `outcome`, `resolution`, `waiting_on`, `hold`, `relationships`, `links`, `external` and `aliases` (SPEC 5.1). `EDITABLE` lists what `edit()` accepts; custom types and statuses are allowed with a warning.
 - **Text formats.** `detectTextFormat(text)` says Markdown, HTML or plain text (with reasons); `titleOfText` and `htmlToText` are exported. Intake items may carry `as` (`markdown`, `html`, `text`, `json`, `import`, `comment`, `update`, `file`) and `name`.
 - **Imports.** `detectImport(json)` recognises Asana, Trello and `{ folios }` exports; `folio.import()` creates folios inside the folio in one pass (ids claimed first, so dependencies can point at folios not yet written; subtasks go inside their task), records `external: { source, id, url }` on each, and writes a report to `history/imports/`.
 - **Folders all the way down.** A folder with a `folio.json` is a folio; folios can hold folios. `Folio.open(fs, { nested })` takes the nested folios' folders (or `'detect'`) and hides them through `ExcludingFs`; `nestedFolioDirs(fs)` finds them; `folio.child(dir)` opens one through `SubFs`, and `createChild` makes one (and calls the host's `onChild`). Folio's own directories (`RESERVED_DIRS`) never hold nested folios.

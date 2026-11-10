@@ -8,7 +8,7 @@ import { RELATIONSHIP_TYPES, normalizeTags } from './relations.js';
  * events/, attachments/}. A ticket is now simply a folio inside its folio. This turns each ticket into one,
  * keeping everything it had:
  *
- *   title, type, priority, tags, owner, target date, outcome, resolution  -> folio.json
+ *   title, type, tags, owner, target date, outcome, resolution  -> folio.json
  *   status: open -> backlog, in_progress -> active, blocked -> waiting, resolved -> review,
  *           closed -> completed, cancelled -> archived (resolution "cancelled")
  *   description.md                -> README.md
@@ -86,7 +86,6 @@ export async function convertTickets(folio, { actor, via = 'folio-lib', moves = 
           description,
           type: t.type || 'ticket',
           status,
-          priority: ['urgent', 'high', 'normal', 'low'].includes(t.priority) ? t.priority : 'normal',
           tags: normalizeTags(t.tags ?? t.labels),
           owner: t.owner || undefined,
           target_date: /^\d{4}-\d{2}-\d{2}$/.test(t.target_date || '') ? t.target_date : undefined,

@@ -1,17 +1,17 @@
 import { ValidationError } from './errors.js';
 import { htmlToText } from './text-format.js';
 import { FOLIO_STATUSES } from './manifest.js';
-import { FOLIO_PRIORITIES, FOLIO_TYPES } from './relations.js';
+import { FOLIO_TYPES } from './relations.js';
 
 /**
  * Importing work from other tools. An export (a JSON file, or JSON pasted as text) is recognised by its shape and
  * turned into folios. Recognised formats:
  *
  *   asana          Asana's JSON export or API responses: { data: [task, ...] }, { data: task } or [task, ...].
- *                  Subtasks, sections, tags, assignees, due dates, completion, a "Priority" custom field,
+ *                  Subtasks, sections, tags, assignees, due dates, completion, custom fields (kept as text),
  *                  dependencies and comments (stories) are kept.
  *   trello         A Trello board export: { cards, lists, labels, actions? }.
- *   folio-list     { folios: [{ title, description?, type?, status?, priority?, tags?, ... }] }, for agents and scripts
+ *   folio-list     { folios: [{ title, description?, type?, status?, tags?, ... }] }, for agents and scripts
  *                  (the older { tickets: [...] } is read too).
  *
  * Each imported folio remembers where it came from in `external` ({ source, id, url }), so importing the same
@@ -23,15 +23,6 @@ export const MAX_IMPORT_ITEMS = 500;
 const str = (v) => (typeof v === 'string' ? v : v === null || v === undefined ? '' : String(v));
 const day = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : undefined);
 
-function priorityFrom(value) {
-  const v = str(value).toLowerCase();
-  if (!v) return undefined;
-  if (/urgent|critical|highest|blocker|p0|asap/.test(v)) return 'urgent';
-  if (/high|p1|important/.test(v)) return 'high';
-  if (/low|p3|p4|minor|trivial/.test(v)) return 'low';
-  if (/med|normal|p2|moderate/.test(v)) return 'normal';
-  return undefined;
-}
 const typeFrom = (value) => {
   const v = str(value).toLowerCase().trim();
   return FOLIO_TYPES.find((t) => t === v || `${t}s` === v) || (/defect|issue/.test(v) ? 'bug' : undefined);
@@ -95,10 +86,9 @@ function asanaPlan(doc) {
     const sections = [...new Set([...(t.memberships || []).map((m) => m?.section?.name).filter(Boolean), ...(currentSection && !parentGid ? [currentSection] : [])])].filter(notSection);
     const fields = Array.isArray(t.custom_fields) ? t.custom_fields : [];
     const fieldValue = (f) => f?.enum_value?.name ?? f?.display_value ?? f?.text_value ?? f?.number_value ?? (Array.isArray(f?.multi_enum_values) ? f.multi_enum_values.map((v) => v.name).join(', ') : null);
-    const pField = fields.find((f) => /priority/i.test(str(f?.name)));
     const tField = fields.find((f) => /^(type|kind|category|ticket type)$/i.test(str(f?.name).trim()));
     const sField = fields.find((f) => /^status$/i.test(str(f?.name).trim()));
-    const others = fields.filter((f) => f !== pField && f !== tField && f !== sField && fieldValue(f) !== null && fieldValue(f) !== '');
+    const others = fields.filter((f) => f !== tField && f !== sField && fieldValue(f) !== null && fieldValue(f) !== '');
     const notes = str(t.notes).trim() || (t.html_notes ? htmlToText(t.html_notes) : '');
     const footer = [
       ...(t.assignee?.name ? [`Assignee in Asana: ${t.assignee.name}`] : []),
@@ -117,7 +107,6 @@ function asanaPlan(doc) {
       type: typeFrom(fieldValue(tField)) || (t.resource_subtype === 'approval' ? 'review' : 'ticket'),
       status,
       ...(status === 'completed' ? { resolution: 'completed' } : {}),
-      priority: priorityFrom(fieldValue(pField)) || 'normal',
       tags: [...sections, ...(t.tags || []).map((g) => g?.name).filter(Boolean), ...(t.resource_subtype === 'milestone' ? ['milestone'] : [])],
       ...(t.assignee ? { owner: t.assignee.email || t.assignee.name || undefined } : {}),
       ...(day(t.due_on || t.due_at) ? { target_date: day(t.due_on || t.due_at) } : {}),
@@ -164,8 +153,7 @@ function trelloPlan(doc) {
         type: 'ticket',
         status,
         ...(status === 'completed' ? { resolution: 'completed' } : status === 'archived' ? { resolution: 'cancelled' } : {}),
-        priority: priorityFrom(tagNames.find((n) => priorityFrom(n))) || 'normal',
-        tags: [...(list?.name ? [list.name] : []), ...tagNames.filter((n) => !priorityFrom(n))],
+        tags: [...(list?.name ? [list.name] : []), ...tagNames],
         ...(day(c.due) ? { target_date: day(c.due) } : {}),
         external: { source: 'trello', id: c.id, ...(c.shortUrl || c.url ? { url: c.shortUrl || c.url } : {}) },
         ...(c.shortUrl || c.url ? { links: [{ type: 'url', label: 'Trello card', url: c.shortUrl || c.url }] } : {}),
@@ -201,7 +189,6 @@ function folioTicketsPlan(doc) {
       type: typeFrom(t.type) || (t.type && /^[a-z][a-z0-9_-]{0,39}$/.test(t.type) ? t.type : 'ticket'),
       status,
       ...(status === 'completed' ? { resolution: str(t.resolution) || 'completed' } : t.resolution ? { resolution: str(t.resolution) } : {}),
-      priority: FOLIO_PRIORITIES.includes(t.priority) ? t.priority : priorityFrom(t.priority) || 'normal',
       tags: Array.isArray(t.tags) ? t.tags.map(str) : typeof t.tags === 'string' ? t.tags.split(',') : [],
       ...(t.owner ? { owner: str(t.owner) } : {}),
       ...(t.outcome ? { outcome: str(t.outcome) } : {}),

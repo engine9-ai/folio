@@ -1,7 +1,7 @@
 {
   "format": "folio",
   "format_revision": 1,
-  "id": "fol-b8megf",
+  "id": "fol-jkddsm",
   "title": "Launch readiness checklist",
   "status": "planned",
   "created_at": "2026-09-02T09:00:00.000Z",
@@ -10,11 +10,11 @@
   "relationships": [
     {
       "type": "blocked_by",
-      "target": "fol-5z2cxd"
+      "target": "fol-8rsvaa"
     },
     {
       "type": "blocked_by",
-      "target": "fol-xpm3mx"
+      "target": "fol-59ty84"
     }
   ]
 }

@@ -23,11 +23,11 @@ test('init refuses to overwrite an existing folio', async () => {
 
 test('a ticket is a folio inside a folio: its own folder, folio.json and README', async () => {
   const { folio, fs } = await make();
-  const r = await folio.createChild({ title: 'Password reset link loops back', type: 'bug', priority: 'high', tags: 'auth, mobile', description: 'Seen on Safari only.' }, { actor });
+  const r = await folio.createChild({ title: 'Password reset link loops back', type: 'bug', tags: 'auth, mobile', description: 'Seen on Safari only.' }, { actor });
   assert.equal(r.dir, 'password-reset-link-loops-back');
   assert.match(r.id, /^fol-/);
   const m = JSON.parse((await fs.read(`${r.dir}/folio.json`)).text);
-  assert.deepEqual([m.title, m.type, m.status, m.priority, m.tags], ['Password reset link loops back', 'bug', 'backlog', 'high', ['auth', 'mobile']]);
+  assert.deepEqual([m.title, m.type, m.status, m.tags], ['Password reset link loops back', 'bug', 'backlog', ['auth', 'mobile']]);
   assert.equal((await fs.read(`${r.dir}/README.md`)).text, '# Password reset link loops back\n\nSeen on Safari only.\n');
   // Same title again: another folder. A title that is one of Folio's own folders gets a suffix.
   assert.equal((await folio.createChild({ title: 'Password reset link loops back' })).dir, 'password-reset-link-loops-back-2');
@@ -45,20 +45,20 @@ test('a ticket is a folio inside a folio: its own folder, folio.json and README'
 
 test('every change to folio.json is recorded: who changed what, from what, to what', async () => {
   const { folio } = await make();
-  await folio.edit({ status: 'active', priority: 'urgent', owner: 'pat@example.com' }, { actor, via: 'test' });
+  await folio.edit({ status: 'active', owner: 'pat@example.com' }, { actor, via: 'test' });
   await folio.edit({ status: 'active' }, { actor }); // no change: nothing recorded
   const h = await folio.history();
   assert.deepEqual(h.map((x) => x.type), ['created', 'updated']);
   const last = await folio.history({ limit: 1 });
   assert.deepEqual([last.length, last.total, last[0].type], [1, 2, 'updated']);
-  assert.deepEqual(h[1].changes, { status: { from: 'draft', to: 'active' }, priority: { from: null, to: 'urgent' }, owner: { from: null, to: 'pat@example.com' } });
+  assert.deepEqual(h[1].changes, { status: { from: 'draft', to: 'active' }, owner: { from: null, to: 'pat@example.com' } });
   assert.deepEqual([h[1].actor, h[1].via], [actor, 'test']);
 });
 
 test('editing: only folio fields people work with; values are checked', async () => {
   const { folio } = await make();
   await assert.rejects(folio.edit({ id: 'fol-other' }), ValidationError);
-  await assert.rejects(folio.edit({ priority: 'whenever' }), ValidationError);
+  await assert.rejects(folio.edit({ status: 'Not a status!' }), ValidationError);
   await assert.rejects(folio.edit({ target_date: 'soon' }), ValidationError);
   await assert.rejects(folio.edit({ title: '' }), ValidationError);
   const m = await folio.edit({ tags: 'a, b, A', type: 'Bug', target_date: '2026-12-01' });
@@ -69,8 +69,8 @@ test('editing: only folio fields people work with; values are checked', async ()
 test('a stale etag is a conflict, not a silent overwrite', async () => {
   const { folio } = await make();
   const { etag } = await folio.manifest();
-  await folio.edit({ priority: 'high' });
-  await assert.rejects(folio.edit({ priority: 'low' }, { ifMatch: etag }), ConflictError);
+  await folio.edit({ owner: 'sam@example.com' });
+  await assert.rejects(folio.edit({ owner: 'pat@example.com' }, { ifMatch: etag }), ConflictError);
 });
 
 test('readiness: blockers, holds, waiting, review and in progress are told apart in plain language', async () => {
@@ -160,7 +160,7 @@ test('unknown optional fields survive an edit (spec 3.4)', async () => {
   const raw = JSON.parse((await fs.read('folio.json')).text);
   raw.x_custom = { kept: true };
   await fs.write('folio.json', JSON.stringify(raw));
-  await folio.edit({ priority: 'urgent' });
+  await folio.edit({ owner: 'pat@example.com' });
   assert.deepEqual((await folio.manifest()).manifest.x_custom, { kept: true });
 });
 

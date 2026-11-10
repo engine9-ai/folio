@@ -207,7 +207,7 @@ test('upgradeLayout turns tickets into folios inside the folio, keeping everythi
   assert.equal(byAlias['TK-002'].dir, 'password-reset-link-loops/check-ios-18'); // a subtask inside its task
   const reset = folio.child(byAlias['TK-001'].dir);
   const m = (await reset.manifest()).manifest;
-  assert.deepEqual([m.title, m.type, m.status, m.priority, m.tags, m.owner, m.aliases], ['Password reset link loops', 'support', 'active', 'high', ['auth'], 'sam@x.example', ['TK-001']]);
+  assert.deepEqual([m.title, m.type, m.status, m.priority, m.tags, m.owner, m.aliases], ['Password reset link loops', 'support', 'active', undefined, ['auth'], 'sam@x.example', ['TK-001']]);
   assert.deepEqual(m.links, [{ type: 'url', url: 'https://github.com/a/b/issues/3' }]);
   assert.equal((await reset.fs.read('README.md')).text, '# Password reset link loops\n\nSafari only.\n');
   assert.equal(await reset.fs.exists('attachments/shot.png'), true);

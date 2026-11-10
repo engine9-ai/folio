@@ -9,10 +9,10 @@ const USAGE = `folio: work with folio folders
   Everything is a folio: a folder with a folio.json. A ticket, a task or a sub-project is a folio inside a folio.
 
   folio init <dir> --title "Title" [--summary "..."] [--type project] [--status active]
-  folio new <dir> --title "..." [--type ticket] [--status backlog] [--priority high] [--tags "a, b"] [--owner ...] [--description "..."]
+  folio new <dir> --title "..." [--type ticket] [--status backlog] [--tags "a, b"] [--owner ...] [--description "..."]
       creates a folio inside <dir> (in its own folder, named after the title)
-  folio list <dir>                                     the folios inside, with status, readiness and priority
-  folio set <dir> --status active [--priority ...] [--owner ...] [--tags "a, b"] [--type ...] [--title ...] [--target-date YYYY-MM-DD]
+  folio list <dir>                                     the folios inside, with status and readiness
+  folio set <dir> --status active [--owner ...] [--tags "a, b"] [--type ...] [--title ...] [--target-date YYYY-MM-DD]
   folio relate <dir> <blocked_by|related|discovered_from|duplicate_of|supersedes> <fol-id>
   folio history <dir>
   folio validate <dir>
@@ -83,7 +83,7 @@ async function main() {
   }
   if (cmd === 'overview') return out(await folio.overview());
   if (cmd === 'ready') {
-    for (const c of (await folio.children()).filter((c) => c.readiness.ready)) console.log(`${c.id}  [${c.priority || 'normal'}]  ${c.title}  (${c.dir})`);
+    for (const c of (await folio.children()).filter((c) => c.readiness.ready)) console.log(`${c.id}  ${c.title}  (${c.dir})`);
     return;
   }
   if (cmd === 'search') return out(await folio.search(args.join(' ')));
@@ -145,16 +145,16 @@ async function main() {
 
   if (cmd === 'new') {
     if (!flags.title) throw new Error('--title is required');
-    const r = await folio.createChild({ title: String(flags.title), type: flags.type ? String(flags.type) : 'ticket', status: flags.status ? String(flags.status) : 'backlog', priority: flags.priority && String(flags.priority), tags: flags.tags && String(flags.tags), owner: flags.owner && String(flags.owner), description: flags.description && String(flags.description) }, { actor, via });
+    const r = await folio.createChild({ title: String(flags.title), type: flags.type ? String(flags.type) : 'ticket', status: flags.status ? String(flags.status) : 'backlog', tags: flags.tags && String(flags.tags), owner: flags.owner && String(flags.owner), description: flags.description && String(flags.description) }, { actor, via });
     return out(`Created ${r.id} in ${join(dir, r.dir)}`);
   }
   if (cmd === 'list') {
-    for (const c of await folio.children()) console.log(`${c.id}  ${String(c.status).padEnd(10)} ${c.readiness.state.padEnd(11)} [${c.priority || 'normal'}]  ${c.title}  (${c.dir})`);
+    for (const c of await folio.children()) console.log(`${c.id}  ${String(c.status).padEnd(10)} ${c.readiness.state.padEnd(11)} ${c.title}  (${c.dir})`);
     return;
   }
   if (cmd === 'set') {
     const patch = {};
-    for (const k of ['status', 'priority', 'owner', 'type', 'title', 'resolution', 'tags', 'summary', 'outcome']) if (flags[k] !== undefined) patch[k] = String(flags[k]);
+    for (const k of ['status', 'owner', 'type', 'title', 'resolution', 'tags', 'summary', 'outcome']) if (flags[k] !== undefined) patch[k] = String(flags[k]);
     if (flags['target-date'] !== undefined) patch.target_date = String(flags['target-date']);
     const m = await folio.edit(patch, { actor, via });
     return out(`${m.title}: ${m.status}`);

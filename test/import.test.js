@@ -68,7 +68,7 @@ test('detectImport recognises Asana, Trello and Folio lists, and nothing else', 
 
 const kids = async (fs) => (await (await Folio.open(fs, { nested: 'detect' })).descendants());
 
-test('an Asana export becomes folios: subtasks inside their task, sections, tags, priority, dependencies, comments', async () => {
+test('an Asana export becomes folios: subtasks inside their task, sections, tags, dependencies, comments', async () => {
   const { folio, fs } = await make();
   const r = await folio.import(JSON.stringify(ASANA), { actor, via: 'test', name: 'asana.json' });
   assert.equal(r.format, 'asana');
@@ -79,12 +79,12 @@ test('an Asana export becomes folios: subtasks inside their task, sections, tags
   const page = by('Redesign donate page');
   assert.equal(page.dir, 'redesign-donate-page');
   const m = page.manifest;
-  assert.deepEqual([m.type, m.status, m.priority, m.owner, m.target_date], ['ticket', 'active', 'high', 'Riley Chen', '2026-12-01']);
+  assert.deepEqual([m.type, m.status, m.priority, m.owner, m.target_date], ['ticket', 'active', undefined, 'Riley Chen', '2026-12-01']);
   assert.deepEqual(m.tags, ['In Progress', 'Design']);
   assert.deepEqual(m.external, { source: 'asana', id: '1201', url: 'https://app.asana.com/0/42/1201', created_at: '2026-10-01T10:00:00.000Z' });
   assert.deepEqual(m.links, [{ type: 'url', label: 'Asana task', url: 'https://app.asana.com/0/42/1201' }]);
   const approve = by('Approve new brand colours').manifest;
-  assert.deepEqual([approve.type, approve.priority, approve.tags], ['review', 'low', undefined]); // "Untitled section" is not a tag
+  assert.deepEqual([approve.type, approve.priority, approve.tags], ['review', undefined, undefined]); // "Untitled section" is not a tag
   assert.deepEqual(m.relationships, [{ type: 'blocked_by', target: approve.id }]);
   const hero = by('Pick hero image');
   assert.equal(hero.dir, 'redesign-donate-page/pick-hero-image'); // inside its task
@@ -184,7 +184,7 @@ test('a Trello board export becomes folios', async () => {
   const all = await kids(fs);
   const a = all.find((d) => d.manifest.title === 'Write launch email');
   const b = all.find((d) => d.manifest.title === 'Pick a date').manifest;
-  assert.deepEqual([a.manifest.status, a.manifest.priority, a.manifest.tags, a.manifest.target_date], ['active', 'urgent', ['Doing', 'Copy'], '2026-11-20']);
+  assert.deepEqual([a.manifest.status, a.manifest.priority, a.manifest.tags, a.manifest.target_date], ['active', undefined, ['Doing', 'Urgent', 'Copy'], '2026-11-20']);
   assert.equal(b.status, 'completed');
   assert.equal((await folio.child(a.dir).comms())[0].text, '(Trello, Pat, 2026-11-01) Draft is in the doc');
 });

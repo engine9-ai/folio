@@ -1,7 +1,7 @@
 import { ConflictError, NotFoundError, ValidationError } from './errors.js';
 import { FOLIO_STATUS_PATTERN, createManifest, newFolioId, validateManifest } from './manifest.js';
 import { addRepositoryTo, describeRepository, removeRepositoryFrom, repositoryKey } from './repositories.js';
-import { FOLIO_PRIORITIES, RELATIONSHIP_TYPES, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
+import { RELATIONSHIP_TYPES, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
 import { validateFolio } from './validate.js';
 import { addItem, classify, createUnique, intakeChoices, slugify, writeIntakeRecord } from './intake.js';
 import { parseEmail } from './email.js';
@@ -18,7 +18,7 @@ const json = (o) => JSON.stringify(o, null, 2) + '\n';
 const TEXT_EXT = /\.(md|json|txt|eml|csv|html|css|js)$/i;
 
 /** Fields of folio.json that people and agents edit directly (edit()). */
-export const EDITABLE = ['title', 'summary', 'type', 'status', 'priority', 'owner', 'target_date', 'tags', 'outcome', 'resolution', 'waiting_on', 'hold', 'links'];
+export const EDITABLE = ['title', 'summary', 'type', 'status', 'owner', 'target_date', 'tags', 'outcome', 'resolution', 'waiting_on', 'hold', 'links'];
 
 const defaultActor = { type: 'unknown' };
 
@@ -96,7 +96,7 @@ export class Folio {
     if (typeof readme === 'string') readme = scrubText(readme).text;
     for (const k of ['outcome', 'resolution', 'waiting_on']) fields[k] = clean(fields[k]);
     const extra = {};
-    for (const k of ['type', 'priority', 'owner', 'target_date', 'outcome', 'resolution', 'links', 'relationships', 'external', 'aliases', 'waiting_on']) if (fields[k] !== undefined && fields[k] !== null && fields[k] !== '') extra[k] = fields[k];
+    for (const k of ['type', 'owner', 'target_date', 'outcome', 'resolution', 'links', 'relationships', 'external', 'aliases', 'waiting_on']) if (fields[k] !== undefined && fields[k] !== null && fields[k] !== '') extra[k] = fields[k];
     const t = normalizeTags(tags);
     const manifest = createManifest({ title: String(title).trim(), summary, status, id, now: now(), ...(t.length ? { tags: t } : {}), ...extra });
     const bad = validateManifest(manifest).filter((p) => p.level === 'error');
@@ -149,7 +149,7 @@ export class Folio {
     return next;
   }
 
-  /** Edit the fields people work with (EDITABLE): title, status, type, priority, owner, target date, tags... */
+  /** Edit the fields people work with (EDITABLE): title, status, type, owner, target date, tags... */
   async edit(patch, { actor = defaultActor, via = 'folio-lib', ifMatch } = {}) {
     const clean = {};
     for (const [k, v] of Object.entries(patch || {})) {
@@ -160,7 +160,6 @@ export class Folio {
       else clean[k] = v ?? undefined;
     }
     if (clean.status !== undefined && !FOLIO_STATUS_PATTERN.test(clean.status)) throw new ValidationError(`“${patch.status}” is not a status`);
-    if (clean.priority !== undefined && !FOLIO_PRIORITIES.includes(clean.priority)) throw new ValidationError(`priority must be one of ${FOLIO_PRIORITIES.join(', ')}`);
     if ('title' in clean && !clean.title) throw new ValidationError('A folio needs a title');
     return this.updateManifest(clean, { actor, via, ifMatch });
   }
@@ -259,7 +258,7 @@ export class Folio {
   }
 
   /**
-   * The folios directly inside this one: [{ dir, id, title, status, type, priority, tags, owner, target_date,
+   * The folios directly inside this one: [{ dir, id, title, status, type, tags, owner, target_date,
    * relationships, readiness, ... }]. Readiness is worked out against the other children (and `statusOf` for
    * folios elsewhere).
    */
@@ -493,7 +492,6 @@ export class Folio {
               description: p.description,
               type: p.type || 'ticket',
               status: p.status || 'backlog',
-              priority: p.priority || 'normal',
               tags: p.tags,
               owner: p.owner ? String(p.owner).slice(0, 200) : undefined,
               outcome: p.outcome,
@@ -568,7 +566,7 @@ export class Folio {
    * Bring a folio written by an earlier version up to date:
    *  - emails from sources/email/ to comms/, uploads and email attachments to attachments/;
    *  - tickets (tickets/TK-001/...) become folios inside this one (legacy-tickets.js): description, status,
-   *    priority, tags, links, comments and history come along; a ticket's parent becomes its folder; the old
+   *    tags, links, comments and history come along; a ticket's parent becomes its folder; the old
    *    ticket id stays as an alias (TK-001) so email addresses and references keep working.
    * A record of every move is kept in history/intake/ (kind "layout"). Safe to run again.
    * Returns { moved, converted: [{ id, dir, alias }], summary }.
@@ -633,7 +631,7 @@ export class Folio {
       folio: manifest,
       readiness: readiness(manifest, (id) => kids.find((c) => c.id === id)?.status ?? statusOf?.(id)),
       folios: { total: kids.length, ...counts },
-      ready: kids.filter((c) => c.readiness.ready).map((c) => ({ id: c.id, dir: c.dir, title: c.title, type: c.type, priority: c.priority, tags: c.tags })),
+      ready: kids.filter((c) => c.readiness.ready).map((c) => ({ id: c.id, dir: c.dir, title: c.title, type: c.type, tags: c.tags })),
       tags: [...new Set([...normalizeTags(manifest.tags), ...kids.flatMap((c) => c.tags)])].sort((a, b) => a.localeCompare(b)),
       repositories: (manifest.repositories || []).map(describeRepository),
       cc: (manifest.cc || []).map((c) => ({ ...c, key: ccKey(c), integration_state: 'reference_only' })),

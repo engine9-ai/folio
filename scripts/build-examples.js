@@ -50,7 +50,6 @@ async function fresh(name) {
   ].join('\r\n'));
   await folio.edit({
     type: 'bug',
-    priority: 'urgent',
     outcome: 'Donations complete on Safari, confirmed by the customer.',
     links: [{ type: 'source', label: "Customer's original email", path: 'comms/2026-11-02-forwarded-report.eml' }],
   }, { actor: sam, via: 'example' });
@@ -73,7 +72,6 @@ async function fresh(name) {
     summary: 'Redesign sign-in and account pages, migrate content, and launch by the end of January.',
     status: 'active',
     type: 'project',
-    priority: 'high',
     tags: ['website', 'design'],
     now,
   });
@@ -96,7 +94,7 @@ async function fresh(name) {
   }));
 
   const opts = { actor: sam, via: 'example' };
-  const design = await folio.createChild({ title: 'New sign-in and account page design', type: 'feature', priority: 'high', owner: 'robin@example.com', status: 'review' }, opts);
+  const design = await folio.createChild({ title: 'New sign-in and account page design', type: 'feature', owner: 'robin@example.com', status: 'review' }, opts);
   const content = await folio.createChild({ title: 'Migrate help content', type: 'request', status: 'active' }, opts);
   const launch = await folio.createChild({ title: 'Launch readiness checklist', type: 'review', status: 'planned' }, opts);
   await launch.folio.relate('blocked_by', design.id, opts);
@@ -141,7 +139,7 @@ async function fresh(name) {
     disposition: { state: 'accepted', note: 'Real defect, tracked in the design folio.' },
   }));
   const bug = await design.folio.createChild({
-    title: 'Primary button overlaps password field on mobile', type: 'bug', priority: 'high',
+    title: 'Primary button overlaps password field on mobile', type: 'bug',
     outcome: 'Button and field never overlap at 390px width.',
     links: [{ type: 'url', label: 'Prototype v1 (as reviewed)', url: 'https://preview.example.com/ART-001/001/' }],
     relationships: [{ type: 'discovered_from', target: design.id }],

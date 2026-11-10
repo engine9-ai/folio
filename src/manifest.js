@@ -1,6 +1,6 @@
 import { validateRepositories } from './repositories.js';
 import { validateCc } from './cc.js';
-import { FOLIO_PRIORITIES, FOLIO_TYPES, RELATIONSHIP_TYPES, isFolioId } from './relations.js';
+import { FOLIO_TYPES, RELATIONSHIP_TYPES, isFolioId } from './relations.js';
 
 export const FORMAT = 'folio';
 export const FORMAT_REVISION = 1;
@@ -64,7 +64,6 @@ export function validateManifest(m) {
     if (typeof m.type !== 'string' || !FOLIO_STATUS_PATTERN.test(m.type)) err('manifest_type', `type must be a lowercase word such as ${FOLIO_TYPES.join(', ')}`);
     else if (!FOLIO_TYPES.includes(m.type)) problems.push({ level: 'warning', code: 'manifest_custom_type', path: 'folio.json', message: `"${m.type}" is not a standard type (${FOLIO_TYPES.join(', ')})` });
   }
-  if (m.priority !== undefined && !FOLIO_PRIORITIES.includes(m.priority)) err('manifest_priority', `priority must be one of ${FOLIO_PRIORITIES.join(', ')}`);
   if (m.target_date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(m.target_date))) err('manifest_target_date', 'target_date must be YYYY-MM-DD');
   if (m.aliases !== undefined && (!Array.isArray(m.aliases) || m.aliases.some((t) => typeof t !== 'string'))) err('manifest_aliases', 'aliases must be an array of strings');
   if (m.external !== undefined && (!m.external || typeof m.external !== 'object' || typeof m.external.source !== 'string' || typeof m.external.id !== 'string'))

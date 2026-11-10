@@ -3,11 +3,13 @@
 
 > **Status.** This is the working specification as finalised in the 2 November 2026 product conversation. It supersedes the earlier draft. It remains a living document: where a decision here conflicts with an earlier idea, this document wins. Scope for the first release is in [section 19](#19-version-1-scope-and-deferred-work).
 >
+> **Changes on 10 November 2026:** **priority is removed** as a concept. Urgency is in the eye of the beholder; status, target dates, blockers and tags carry what a team needs. Older `folio.json` files keep a `priority` field untouched as an unknown field (3.4); Folio no longer reads, sets, validates or shows it, and imports no longer derive one.
+>
 > **Changes on 9 November 2026 (CC):** every folio keeps its own **CC list** of people and channels kept informed: email addresses, Slack channels and people, phone numbers for SMS, or any other channel (5.7). The list lives in `folio.json`; **delivering** to it is an optional add-on of each hosting deployment, configured there and never in the folio. A message that comes back from a CC is credited to that person or channel (3.1.2).
 >
 > **Changes on 7 November 2026:** a content policy (3.7) with [GUIDE.md](GUIDE.md) as its user guide: no credentials, card, bank or Social Security numbers; client contacts are fine, other people's personal data is anonymised; code is referenced, not copied. Data files and logs are summarised, with personal data masked by `@engine9/pii-classifier`, and the originals held in temporary storage (8.4.1). Repository entries may record `references` to releases, pull requests, issues and commits (3.2.1).
 >
-> **Changes in 1.0 (9 November 2026):** **tickets are gone; work is folios inside folios** (5). Type, priority, tags, owner, blockers and readiness are fields of every folio (5.1, 5.2); every change to `folio.json` is recorded (5.4); existing tickets are converted by `upgradeLayout` (5.6); imports create folios (4.4.1).
+> **Changes in 1.0 (9 November 2026):** **tickets are gone; work is folios inside folios** (5). Type, tags, owner, blockers and readiness are fields of every folio (5.1, 5.2); every change to `folio.json` is recorded (5.4); existing tickets are converted by `upgradeLayout` (5.6); imports create folios (4.4.1).
 >
 > **Changes on 6 November 2026:** adding anything to a folio goes through one routing rule owned by the library (8.6), used by drag and drop, uploads, the CLI and email forwarding; email forwarding to a folio's address is in version 1 (8.1); permissions live only in the hosting service (11.1).
 >
@@ -111,7 +113,7 @@ folios/
     attachments/                 files people add: screenshots, documents, an email's attachments
 
     fix-mobile-redirect/         a folio inside the folio: one piece of the work (5)
-      folio.json                 type, status, priority, owner, blockers...
+      folio.json                 type, status, owner, blockers...
       README.md
       comms/
       attachments/
@@ -203,7 +205,7 @@ The rules (3.8 has the detail):
 
 - Stable folio ID and a title.
 - Concise summary, purpose, and desired outcome.
-- Lifecycle status, type, priority, owner, target date, tags, and relationships to other folios (5.1).
+- Lifecycle status, type, owner, target date, tags, and relationships to other folios (5.1).
 - Creation and last meaningful update timestamps.
 - Optional key dates.
 - Optional non-secret repository references, connection aliases, and related external URLs.
@@ -221,7 +223,6 @@ Illustrative manifest:
   "summary": "Investigate authentication reports and review the updated sign-in experience.",
   "status": "active",
   "type": "project",
-  "priority": "high",
   "created_at": "2026-11-02T10:00:00Z",
   "updated_at": "2026-11-02T10:00:00Z",
   "tags": ["support", "website"],
@@ -330,7 +331,7 @@ A folio can also be introduced by importing an existing folder, including one co
 
 ### 4.2 Discover and navigate
 
-People working with many organisations need to find folios by folder, title, status, owner, tags, recent activity, type, priority, readiness, and available context. Lists and search results are *views of folio content*, not independent records that must be maintained manually.
+People working with many organisations need to find folios by folder, title, status, owner, tags, recent activity, type, readiness, and available context. Lists and search results are *views of folio content*, not independent records that must be maintained manually.
 
 A folio overview should answer: **What is this? What is outstanding? What changed? What needs my attention? Where is the latest deliverable?**
 
@@ -363,9 +364,9 @@ An export from another tool becomes **folios inside the folio** it is added to. 
 
 | Format | Recognised by | Becomes |
 |---|---|---|
-| Asana | Asana's project JSON export or API task lists: `{ "data": [task, ...] }`, `{ "data": task }` or `[task, ...]`, where tasks have `gid` and `name` and Asana's task fields | One folio (type `ticket`) per task. Subtasks go inside their task's folio, `dependencies` become `blocked_by`, sections and tags become tags, a "Priority" custom field the priority, a "Type" field the type, completed tasks are `completed`, a section like "In progress" or "Waiting" sets the status, `due_on` the target date, the assignee the owner, `notes` (or `html_notes`) the README with other custom fields and the Asana link below it, and comments in `stories` the folio's `comms/` |
-| Trello | A board export: `{ cards, lists, labels, actions }` | One folio per card: the list and labels become tags (a priority label sets the priority), a "Done" list completes it, an archived card is archived, comments go to `comms/` |
-| Folio list | `{ "folios": [{ id, title, description, type, status, priority, tags, owner, target_date, parent, blocked_by, comments }] }` (the older `{ "tickets": [...] }` too) | One folio each; `parent` and `blocked_by` refer to other entries by `id` |
+| Asana | Asana's project JSON export or API task lists: `{ "data": [task, ...] }`, `{ "data": task }` or `[task, ...]`, where tasks have `gid` and `name` and Asana's task fields | One folio (type `ticket`) per task. Subtasks go inside their task's folio, `dependencies` become `blocked_by`, sections and tags become tags, a "Type" field the type, completed tasks are `completed`, a section like "In progress" or "Waiting" sets the status, `due_on` the target date, the assignee the owner, `notes` (or `html_notes`) the README with the other custom fields (a "Priority" field included, as text) and the Asana link below it, and comments in `stories` the folio's `comms/` |
+| Trello | A board export: `{ cards, lists, labels, actions }` | One folio per card: the list and labels become tags, a "Done" list completes it, an archived card is archived, comments go to `comms/` |
+| Folio list | `{ "folios": [{ id, title, description, type, status, tags, owner, target_date, parent, blocked_by, comments }] }` (the older `{ "tickets": [...] }` too) | One folio each; `parent` and `blocked_by` refer to other entries by `id` |
 
 - Each imported folio records where it came from in `external` (`{ source, id, url }`). **Importing the same export again skips what was already imported**, so an export can be re-imported after more work was added to it.
 - Blockers that would form a loop are left out. Text is scrubbed like any other (3.7). Up to 500 items per import.
@@ -386,7 +387,6 @@ The fields that matter for tracking work all live in `folio.json`:
 | `id`, `title`, `summary` | Identity and what it is. The folder name follows the title and may change; the id does not. |
 | `type` | Why it exists. Suggested: `project`, `ticket`, `task`, `request`, `support`, `bug`, `feature`, `review`, `investigation`, `epic`. Others are allowed (a lowercase word; validation warns). |
 | `status` | Its column on the board (4.3). |
-| `priority` | `urgent`, `high`, `normal`, `low`. Human-facing urgency, distinct from order or effort. |
 | `tags` | Free-form words for grouping and filtering. |
 | `owner`, `target_date` | Who is responsible (an email or a name) and when it is due (`YYYY-MM-DD`). |
 | `outcome`, `resolution` | What a good result looks like; why it ended (`completed`, `duplicate`, `declined`, `cannot_reproduce`, `superseded`, `cancelled`, or custom). |
@@ -396,7 +396,7 @@ The fields that matter for tracking work all live in `folio.json`:
 | `external`, `aliases` | Where an imported folio came from (`{ source, id, url }`), and older identifiers it answered to (such as `TK-001`). |
 | `cc` | People and channels kept informed about this folio (5.7). |
 
-Longer explanation goes in the folio's `README.md`. Priority and status are not inferred from a message's tone; people set them, and every change is attributable (5.4).
+Longer explanation goes in the folio's `README.md`. Status is not inferred from a message's tone; people set them, and every change is attributable (5.4).
 
 ### 5.2 Relationships and readiness
 
@@ -794,13 +794,13 @@ A folio opens as itself, like a case in a help desk or a task in Asana, not as a
 - Title, state (with the reason when it is blocked, waiting or a draft) and Mark Done.
 - Description, files (attachments and notes), and the folios inside it (sub-tickets), with a one-line add.
 - The whole conversation from `comms/` (emails, comments, updates, agents' reports) in time order, with a composer that takes text and files.
-- A details column: status, type, priority, owner, target date, tags, what it waits on, **CC** (people and channels, each showing whether this deployment delivers to it), its email address, repositories, recent changes and sharing.
+- A details column: status, type, owner, target date, tags, what it waits on, **CC** (people and channels, each showing whether this deployment delivers to it), its email address, repositories, recent changes and sharing.
 
 Everything is edited in place, and anything dropped on the page is added to the folio. Folios inside a folio are secondary: they show within it, not alongside it in lists of folios or on its folder's board (its card counts them). For a small folio this page should feel simple rather than empty; for a larger one it should offer a concise route to the detail without becoming a dashboard requiring constant maintenance.
 
 ### 13.3 Work inside a folio
 
-The folios inside a folio can also be shown on their own (and a folder's folios are shown) as a **board** (13.1.1) or a **list** with Name, Type, Status, State (readiness), Priority, Owner and Modified columns, sortable and filterable by tag, plus a Ready view. Opening one shows its own page or a Quick Look panel: status, type, priority, owner, tags, blockers, conversation and files together, with drop and quick add.
+The folios inside a folio can also be shown on their own (and a folder's folios are shown) as a **board** (13.1.1) or a **list** with Name, Type, Status, State (readiness), Owner and Modified columns, sortable and filterable by tag, plus a Ready view. Opening one shows its own page or a Quick Look panel: status, type, owner, tags, blockers, conversation and files together, with drop and quick add.
 
 ### 13.4 Feedback workspace
 
@@ -923,7 +923,7 @@ A successful folio stands on its own. The hosted application provides a pleasant
 - Hosting at `folio.engine9.ai` on Cloudflare: a folder tree in R2 (top-level folders, folders, folios, folios in folios), a D1 control plane for the folio index and access on folders.
 - Sign-in through Delegate via `@engine9/core`; permissions on any folder, subfolder or folio, inherited downwards; conflict-safe editing.
 - An MCP endpoint over the same folio content, with scoped, revocable agent access.
-- A browser workspace laid out like a Finder window: folio list, the folio's folder, the folios inside it as a board or list (with readiness, type, priority and tags), Quick Look, repositories, files, sharing.
+- A browser workspace laid out like a Finder window: folio list, the folio's folder, the folios inside it as a board or list (with readiness, type and tags), Quick Look, repositories, files, sharing.
 - Drag and drop, paste and upload into a folio, filed by the library's routing rule (8.6): text saved as Markdown, HTML or plain text by detection, with the type chosen before or changed after; Asana, Trello and Folio-list exports imported as folios (4.4.1).
 - Email forwarding to a folio's intake address (8.1).
 
