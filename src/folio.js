@@ -308,14 +308,17 @@ export class Folio {
   // ---- the conversation (comms.js) --------------------------------------------
 
   /** Comment on this folio. Comments are messages in comms/, with everything else said about the work. */
-  async comment(text, { actor = defaultActor, via = 'folio-lib', kind = 'comment', attachments = [] } = {}) {
+  async comment(text, { actor = defaultActor, via = 'folio-lib', kind = 'comment', attachments = [], internal = false } = {}) {
     if (!text || !String(text).trim()) throw new ValidationError('A comment cannot be empty');
-    return postMessage(this, { kind, text, attachments, actor, via });
+    return postMessage(this, { kind, text, attachments, actor, via, internal });
   }
 
-  /** Post a message to comms/: a comment, a status update, an agent's report or a captured chat. */
-  post(kind, text, { attachments = [], actor = defaultActor, via = 'folio-lib', at } = {}) {
-    return postMessage(this, { kind, text, attachments, actor, via, at });
+  /**
+   * Post a message to comms/: a comment, a status update, an agent's report or a captured chat. `internal: true`
+   * makes it an internal note: kept in the folio, never passed on to the folio's CCs (SPEC 5.7).
+   */
+  post(kind, text, { attachments = [], actor = defaultActor, via = 'folio-lib', at, internal = false } = {}) {
+    return postMessage(this, { kind, text, attachments, actor, via, at, internal });
   }
 
   /**

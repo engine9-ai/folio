@@ -22,6 +22,7 @@ import { authorChannel, ccKey, findCc } from './cc.js';
  *   { "at", "kind", "author": { type, id, name?, on_behalf_of?, channel?, workspace? }, "via", "text",
  *     "attachments"?: [paths], "imported"?: { source, author, at }, "ref"?: { channel, id } }
  *
+ * `internal: true` marks an internal note: it stays in the folio and is never passed on to the folio's CCs.
  * `author.channel` says the message came in over a channel (a Slack reply, an SMS) from one of the folio's CCs
  * (cc.js); `ref` is that channel's own id for the message, so a second delivery of it is not stored twice.
  */
@@ -67,7 +68,7 @@ export function messageName(at, text, kind) {
  * Write a message to comms/. Text is scrubbed of card numbers and credentials (spec 3.7). Returns
  * { path, message, removed? }.
  */
-export async function postMessage(folio, { kind = 'comment', text, attachments = [], actor, via = 'folio-lib', at = null, imported = null, ref = null }) {
+export async function postMessage(folio, { kind = 'comment', text, attachments = [], actor, via = 'folio-lib', at = null, imported = null, ref = null, internal = false }) {
   if (!MESSAGE_KINDS.includes(kind)) throw new ValidationError(`A message is one of ${MESSAGE_KINDS.join(', ')}`);
   if (!text || !String(text).trim()) throw new ValidationError('A message cannot be empty');
   const { text: clean, removed, total } = scrubText(String(text));
@@ -81,6 +82,7 @@ export async function postMessage(folio, { kind = 'comment', text, attachments =
     ...(attachments.length ? { attachments } : {}),
     ...(imported ? { imported } : {}),
     ...(ref ? { ref } : {}),
+    ...(internal ? { internal: true } : {}),
   };
   let name = messageName(when, clean, kind);
   if (ref) {
@@ -147,7 +149,7 @@ export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc 
       continue;
     }
     const text = String(m.text || '');
-    items.push({ kind, path, at: m.at || dateFromName(path), author: m.author || { type: 'unknown' }, via: m.via, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(m.attachments ? { attachments: m.attachments } : {}), ...(m.imported ? { imported: m.imported } : {}) });
+    items.push({ kind, path, at: m.at || dateFromName(path), author: m.author || { type: 'unknown' }, via: m.via, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(m.attachments ? { attachments: m.attachments } : {}), ...(m.internal === true ? { internal: true } : {}), ...(m.imported ? { imported: m.imported } : {}) });
   }
   // Credit messages from the folio's CCs: an email from a CC'd address, a reply from a CC'd Slack channel.
   if (cc.length)

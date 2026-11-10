@@ -119,3 +119,15 @@ test('validation reports a malformed or duplicated CC list', async () => {
   assert.deepEqual(r.problems.filter((p) => p.code.startsWith('cc_')).map((p) => p.code).sort(), ['cc_duplicate', 'cc_shape']);
   assert.equal(findCc(m.cc, { type: 'email', channel: 'email', id: 'a@b.co' }).address, 'a@b.co');
 });
+
+test('internal notes are stored as such and are not news for CCs', async () => {
+  const { folio } = await make();
+  const seen = [];
+  folio.onMessage = async (m) => seen.push(m);
+  await folio.comment('Team only: they are on the old feed.', { actor, internal: true });
+  await folio.comment('Hi Tim, report attached.', { actor });
+  assert.deepEqual(seen.map((m) => m.internal === true), [true, false]);
+  const said = await folio.comms({ cc: [] });
+  assert.equal(said.find((m) => m.text.startsWith('Team only')).internal, true);
+  assert.equal(said.find((m) => m.text.startsWith('Hi Tim')).internal, undefined);
+});
