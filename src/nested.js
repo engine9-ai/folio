@@ -1,3 +1,4 @@
+import { LEGACY_DIR } from './legacy-names.js';
 import { FolioError } from './errors.js';
 import { normalizePath } from './fs.js';
 
@@ -8,17 +9,16 @@ import { normalizePath } from './fs.js';
  *   acme/                       a folder (no folio.json)
  *     website-refresh/          a folio
  *       folio.json
- *       tickets/ ...
  *       phase-2/                a folio inside a folio
  *         folio.json
  *
  * A nested folio is its own record: the folio around it does not list, search, validate or write its files, so
- * each can be shared, moved or exported on its own. Folio's own directories (tickets/, sources/, notes/ ...) never
+ * each can be shared, moved or exported on its own. Folio's own directories (comms/, sources/, notes/ ...) never
  * hold nested folios; a folio.json filed under them is just a file.
  */
 
 /** Top-level directories that belong to a folio's own record and never hold nested folios. */
-export const RESERVED_DIRS = Object.freeze(['tickets', 'comms', 'attachments', 'sources', 'notes', 'history', 'indexes', 'feedback', 'artifacts', 'decisions', 'integrations', 'samples']);
+export const RESERVED_DIRS = Object.freeze([LEGACY_DIR, 'comms', 'attachments', 'sources', 'notes', 'history', 'indexes', 'feedback', 'artifacts', 'decisions', 'integrations', 'samples']);
 
 /** Can `dir` (folio-relative, e.g. "phase-2" or "work/phase-2") hold a nested folio? */
 export function canHoldFolio(dir) {

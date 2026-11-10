@@ -2,11 +2,12 @@ import { postMessage } from './comms.js';
 import { isEmailPath } from './comms.js';
 import { newFolioId } from './manifest.js';
 import { RELATIONSHIP_TYPES, normalizeTags } from './relations.js';
+import { currentType } from './legacy-names.js';
 
 /**
- * Folios written before version 1 kept work items as tickets: tickets/TK-001/{ticket.json, description.md,
- * events/, attachments/}. A ticket is now simply a folio inside its folio. This turns each ticket into one,
- * keeping everything it had:
+ * The layout from before version 1 kept work items in their own directory: tickets/TK-001/{ticket.json,
+ * description.md, events/, attachments/} (those names are the old on-disk format, read here and nowhere else). Every
+ * work item is now simply a folio inside its folio. This turns each old item into one, keeping everything it had:
  *
  *   title, type, tags, owner, target date, outcome, resolution  -> folio.json
  *   status: open -> backlog, in_progress -> active, blocked -> waiting, resolved -> review,
@@ -28,7 +29,8 @@ async function bytesOf(fs, path) {
   return cur ? cur.bytes ?? cur.text : null;
 }
 
-export async function convertTickets(folio, { actor, via = 'folio-lib', moves = {} } = {}) {
+
+export async function convertLegacyItems(folio, { actor, via = 'folio-lib', moves = {} } = {}) {
   const fs = folio.fs;
   const files = await fs.list('tickets');
   const ids = [...new Set(files.map((f) => /^tickets\/(TK-\d+)\//.exec(f)?.[1]).filter(Boolean))].sort();
@@ -84,7 +86,7 @@ export async function convertTickets(folio, { actor, via = 'folio-lib', moves = 
           id: newId.get(t.id),
           title: t.title || t.id,
           description,
-          type: t.type || 'ticket',
+          ...(currentType(t.type) ? { type: t.type } : {}),
           status,
           tags: normalizeTags(t.tags ?? t.labels),
           owner: t.owner || undefined,

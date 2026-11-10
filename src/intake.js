@@ -35,7 +35,7 @@ import { isEmailPath, postMessage } from './comms.js';
  *   - data files and logs are summarised with personal data masked, unless small and free of personal data;
  *   - key and credential files (.env, .pem, id_rsa…) are refused; .git and node_modules folders are skipped.
  *
- * Something added to a folio inside a folio (a ticket, a task) is simply added to that folio. With a folder (dropped
+ * Something added to a folio inside a folio (a sub-folio) is simply added to that folio. With a folder (dropped
  * on a folder), files go into that folder. Emails, repositories and links always go to
  * their own places, wherever they were dropped.
  */

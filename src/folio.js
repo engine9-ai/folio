@@ -11,7 +11,8 @@ import { SubFs, normalizePath } from './fs.js';
 import { TEXT_FORMATS, textFormatOf } from './text-format.js';
 import { parseJsonText, planImport } from './import.js';
 import { EMAIL_DIRS, isEmailPath, postMessage, readComms } from './comms.js';
-import { convertTickets } from './legacy-tickets.js';
+import { convertLegacyItems } from './legacy-layout.js';
+import { currentType } from './legacy-names.js';
 import { MAX_CC, ccAuthor, ccKey, findCc, normalizeCc, parseCc } from './cc.js';
 
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
@@ -279,7 +280,7 @@ export class Folio {
   }
 
   /**
-   * Create a folio inside this one: a ticket, a task, a sub-project. It gets its own folder (named after the
+   * Create a folio inside this one (a sub-folio): a task, a bug, a sub-project. It gets its own folder (named after the
    * title) with folio.json and README.md; `description` becomes the README. Returns { id, dir, manifest, folio }.
    */
   async createChild(input = {}, { actor = defaultActor, via = 'folio-lib', inDir = '' } = {}) {
@@ -429,8 +430,8 @@ export class Folio {
   }
 
   /**
-   * Turn an export from another tool (Asana, Trello, or { tickets: [...] }) into folios inside this one: each
-   * task a folio (type from the export, ticket by default), subtasks inside their task's folio, dependencies as
+   * Turn an export from another tool (Asana, Trello, or { folios: [...] }) into folios inside this one: each
+   * task a folio (type from the export, task by default), subtasks inside their task's folio, dependencies as
    * blocked_by, comments in each folio's comms/. Folios already imported (same `external` source and id) are
    * skipped, so an export can be imported again. A record is kept in history/imports/.
    * Returns { format, label, created: [{ id, dir }], duplicates, path, summary }. With dryRun: { would_create, duplicates }.
@@ -490,7 +491,7 @@ export class Folio {
               id: ids.get(p.key),
               title: String(p.title).slice(0, 300),
               description: p.description,
-              type: p.type || 'ticket',
+              ...(p.type ? { type: p.type } : {}),
               status: p.status || 'backlog',
               tags: p.tags,
               owner: p.owner ? String(p.owner).slice(0, 200) : undefined,
@@ -565,9 +566,10 @@ export class Folio {
   /**
    * Bring a folio written by an earlier version up to date:
    *  - emails from sources/email/ to comms/, uploads and email attachments to attachments/;
-   *  - tickets (tickets/TK-001/...) become folios inside this one (legacy-tickets.js): description, status,
-   *    tags, links, comments and history come along; a ticket's parent becomes its folder; the old
-   *    ticket id stays as an alias (TK-001) so email addresses and references keep working.
+   *  - work items kept in the older layout become folios inside this one (legacy-layout.js): description,
+   *    status, tags, links, comments and history come along; an item's parent becomes its folder; its old
+   *    id stays as an alias (TK-001).
+   *  - a type only older versions used (LEGACY_TYPES) is cleared: a plain folio.
    * A record of every move is kept in history/intake/ (kind "layout"). Safe to run again.
    * Returns { moved, converted: [{ id, dir, alias }], summary }.
    */
@@ -588,13 +590,16 @@ export class Folio {
       await this.fs.remove(from);
       moves[from] = dest;
     });
-    const converted = await convertTickets(this, { actor, via, moves });
-    if (!Object.keys(moves).length && !converted.length) return { moved: 0, converted: [], moves: {}, summary: 'Already in the current layout' };
+    const converted = await convertLegacyItems(this, { actor, via, moves });
+    const { manifest } = await this.manifest();
+    const retyped = Boolean(manifest.type) && !currentType(manifest.type);
+    if (retyped) await this.updateManifest({ type: undefined }, { actor, via });
+    if (!Object.keys(moves).length && !converted.length) return { moved: 0, converted: [], moves: {}, ...(retyped ? { retyped } : {}), summary: retyped ? 'Updated from an older version' : 'Already in the current layout' };
     await writeIntakeRecord(this, { actor, via, kind: 'layout', moves, ...(converted.length ? { converted } : {}) });
     const n = Object.keys(moves).length;
     const parts = [];
     if (n) parts.push(`Moved ${n} ${n === 1 ? 'file' : 'files'}: emails to comms/, uploads and email attachments to attachments/`);
-    if (converted.length) parts.push(`Turned ${converted.length} ${converted.length === 1 ? 'ticket' : 'tickets'} into folios`);
+    if (converted.length) parts.push(`Turned ${converted.length} ${converted.length === 1 ? 'item' : 'items'} from the older layout into folios`);
     return { moved: n, converted, moves, summary: parts.join('; ') };
   }
 

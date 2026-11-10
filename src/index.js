@@ -1,6 +1,7 @@
 export { EDITABLE, Folio, externalOf, mapLimit } from './folio.js';
 export { DONE_STATUSES, FOLIO_TYPES, READINESS_STATES, RELATIONSHIP_TYPES, findCycle, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
-export { convertTickets } from './legacy-tickets.js';
+export { convertLegacyItems } from './legacy-layout.js';
+export { LEGACY_TYPES, currentType } from './legacy-names.js';
 export { INTAKE_AS, INTAKE_KINDS, classify, intakeChoices, repositoryFromUrl, safeName, slugify, urlsIn } from './intake.js';
 export { TEXT_FORMATS, detectTextFormat, htmlToText, textFormatOf, titleOfText } from './text-format.js';
 export { IMPORTERS, IMPORT_FORMATS, MAX_IMPORT_ITEMS, detectImport, parseJsonText, planImport } from './import.js';

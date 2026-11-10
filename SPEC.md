@@ -3,13 +3,13 @@
 
 > **Status.** This is the working specification as finalised in the 2 November 2026 product conversation. It supersedes the earlier draft. It remains a living document: where a decision here conflicts with an earlier idea, this document wins. Scope for the first release is in [section 19](#19-version-1-scope-and-deferred-work).
 >
-> **Changes on 10 November 2026:** **priority is removed** as a concept. Urgency is in the eye of the beholder; status, target dates, blockers and tags carry what a team needs. Older `folio.json` files keep a `priority` field untouched as an unknown field (3.4); Folio no longer reads, sets, validates or shows it, and imports no longer derive one.
+> **Changes on 10 November 2026:** **work is only folios**: work is folios inside folios (**sub-folios**), with no separate work-item type. A folio written with the type an earlier version used is treated as having no type, and `upgradeLayout` clears it (5.6). On a folio's page the folios inside it are listed in the side column (13.2). **Priority is removed** as a concept. Urgency is in the eye of the beholder; status, target dates, blockers and tags carry what a team needs. Older `folio.json` files keep a `priority` field untouched as an unknown field (3.4); Folio no longer reads, sets, validates or shows it, and imports no longer derive one.
 >
 > **Changes on 9 November 2026 (CC):** every folio keeps its own **CC list** of people and channels kept informed: email addresses, Slack channels and people, phone numbers for SMS, or any other channel (5.7). The list lives in `folio.json`; **delivering** to it is an optional add-on of each hosting deployment, configured there and never in the folio. A message that comes back from a CC is credited to that person or channel (3.1.2).
 >
 > **Changes on 7 November 2026:** a content policy (3.7) with [GUIDE.md](GUIDE.md) as its user guide: no credentials, card, bank or Social Security numbers; client contacts are fine, other people's personal data is anonymised; code is referenced, not copied. Data files and logs are summarised, with personal data masked by `@engine9/pii-classifier`, and the originals held in temporary storage (8.4.1). Repository entries may record `references` to releases, pull requests, issues and commits (3.2.1).
 >
-> **Changes in 1.0 (9 November 2026):** **tickets are gone; work is folios inside folios** (5). Type, tags, owner, blockers and readiness are fields of every folio (5.1, 5.2); every change to `folio.json` is recorded (5.4); existing tickets are converted by `upgradeLayout` (5.6); imports create folios (4.4.1).
+> **Changes in 1.0 (9 November 2026):** **work is folios inside folios** (5). Type, tags, owner, blockers and readiness are fields of every folio (5.1, 5.2); every change to `folio.json` is recorded (5.4); folios in the earlier layout are converted by `upgradeLayout` (5.6); imports create folios (4.4.1).
 >
 > **Changes on 6 November 2026:** adding anything to a folio goes through one routing rule owned by the library (8.6), used by drag and drop, uploads, the CLI and email forwarding; email forwarding to a folio's address is in version 1 (8.1); permissions live only in the hosting service (11.1).
 >
@@ -61,7 +61,7 @@ The application uses clear, stable terminology.
 |---|---|
 | **Account** | An organisation or working group whose members may access one or more folios. |
 | **Folio** | One self-contained folder representing a bounded body of work. |
-| **Folio type** | Why a folio exists: a project, a ticket, a bug, a support request, a review... A ticket is simply a folio of type `ticket`. |
+| **Folio type** | Why a folio exists: a project, a task, a bug, a support request, a review... A folio may have no type. |
 | **Relationship** | A connection between folios, such as blocked by, related, or discovered from. |
 | **Execution record** | Optional fine-grained steps, actions, or agent runs undertaken to advance a folio; not a folio itself. |
 | **Source** | Original evidence, such as an email, a Slack discussion, a submitted form, a captured GitHub item, or a document. |
@@ -174,7 +174,7 @@ A message file is JSON: `{ "at", "kind", "author": { "type", "id", "name"?, "on_
 
 **Files are assets and live apart**, in `attachments/`; a message refers to them by path. Keeping the conversation in one folder of small files makes it easy to read, search, summarise and compress (older messages can be replaced by a `*.summary.md`), without visiting a folder per kind of message.
 
-Folios written before `comms/` existed kept emails in `sources/email/`, uploads in `sources/uploads/`, and tickets in `tickets/`. Readers still understand the first two, and `folio.upgradeLayout()` moves everything into this layout (5.6).
+Folios written before `comms/` existed kept emails in `sources/email/`, uploads in `sources/uploads/`, and work items in a directory of their own. Readers still understand the first two, and `folio.upgradeLayout()` moves everything into this layout (5.6).
 
 ### 3.1.1 Folders all the way down
 
@@ -364,9 +364,9 @@ An export from another tool becomes **folios inside the folio** it is added to. 
 
 | Format | Recognised by | Becomes |
 |---|---|---|
-| Asana | Asana's project JSON export or API task lists: `{ "data": [task, ...] }`, `{ "data": task }` or `[task, ...]`, where tasks have `gid` and `name` and Asana's task fields | One folio (type `ticket`) per task. Subtasks go inside their task's folio, `dependencies` become `blocked_by`, sections and tags become tags, a "Type" field the type, completed tasks are `completed`, a section like "In progress" or "Waiting" sets the status, `due_on` the target date, the assignee the owner, `notes` (or `html_notes`) the README with the other custom fields (a "Priority" field included, as text) and the Asana link below it, and comments in `stories` the folio's `comms/` |
+| Asana | Asana's project JSON export or API task lists: `{ "data": [task, ...] }`, `{ "data": task }` or `[task, ...]`, where tasks have `gid` and `name` and Asana's task fields | One folio (type `task`) per task. Subtasks go inside their task's folio, `dependencies` become `blocked_by`, sections and tags become tags, a "Type" field the type, completed tasks are `completed`, a section like "In progress" or "Waiting" sets the status, `due_on` the target date, the assignee the owner, `notes` (or `html_notes`) the README with the other custom fields (a "Priority" field included, as text) and the Asana link below it, and comments in `stories` the folio's `comms/` |
 | Trello | A board export: `{ cards, lists, labels, actions }` | One folio per card: the list and labels become tags, a "Done" list completes it, an archived card is archived, comments go to `comms/` |
-| Folio list | `{ "folios": [{ id, title, description, type, status, tags, owner, target_date, parent, blocked_by, comments }] }` (the older `{ "tickets": [...] }` too) | One folio each; `parent` and `blocked_by` refer to other entries by `id` |
+| Folio list | `{ "folios": [{ id, title, description, type, status, tags, owner, target_date, parent, blocked_by, comments }] }` | One folio each; `parent` and `blocked_by` refer to other entries by `id` |
 
 - Each imported folio records where it came from in `external` (`{ source, id, url }`). **Importing the same export again skips what was already imported**, so an export can be re-imported after more work was added to it.
 - Blockers that would form a loop are left out. Text is scrubbed like any other (3.7). Up to 500 items per import.
@@ -376,7 +376,7 @@ An export from another tool becomes **folios inside the folio** it is added to. 
 
 ## 5. Folios inside folios: the unit of work
 
-There is no separate ticket object. **A piece of work is a folio**, and a folio's work is broken down into **folios inside it** (3.8). A bug report, a support request, a feature, a review, a whole project: each is a folder with a `folio.json`, its own `comms/`, `attachments/` and history, and its own email address and sharing. What used to be "a ticket" is a folio whose `type` is `ticket` (or `bug`, `support`, ...). A small folio may hold no folios at all; a substantial one holds a few, and those may hold their own.
+There is no separate work-item object. **A piece of work is a folio**, and a folio's work is broken down into **folios inside it** (3.8). A bug report, a support request, a feature, a review, a whole project: each is a folder with a `folio.json`, its own `comms/`, `attachments/` and history, and its own email address and sharing. A piece of the work is a **sub-folio**, with a `type` such as `task`, `bug` or `support`, or none. A small folio may hold no folios at all; a substantial one holds a few, and those may hold their own.
 
 ### 5.1 What every folio carries
 
@@ -385,7 +385,7 @@ The fields that matter for tracking work all live in `folio.json`:
 | Field | Meaning |
 |---|---|
 | `id`, `title`, `summary` | Identity and what it is. The folder name follows the title and may change; the id does not. |
-| `type` | Why it exists. Suggested: `project`, `ticket`, `task`, `request`, `support`, `bug`, `feature`, `review`, `investigation`, `epic`. Others are allowed (a lowercase word; validation warns). |
+| `type` | Why it exists. Suggested: `project`, `task`, `request`, `support`, `bug`, `feature`, `review`, `investigation`, `epic`. Others are allowed (a lowercase word; validation warns). |
 | `status` | Its column on the board (4.3). |
 | `tags` | Free-form words for grouping and filtering. |
 | `owner`, `target_date` | Who is responsible (an email or a name) and when it is due (`YYYY-MM-DD`). |
@@ -436,13 +436,13 @@ Direct editing of the files is legitimate. A host should flag changes it cannot 
 
 A folio can be created from an email, a feedback response, a document, an artifact annotation, or a discovery made in another folio (`discovered_from`). People update it, comment on it, assign it, attach evidence, add blockers and mark it done. Closing invites a short update: what changed, how it was verified, what remains open. Reopening is a status change; the record is kept.
 
-### 5.6 Folios written with tickets
+### 5.6 Folios written before 1.0
 
-Folios written before 1.0 kept tickets in `tickets/TK-NNN/`. `folio.upgradeLayout()` converts each into a folio inside the folio (a ticket with a parent goes inside its parent's folio), keeping its fields, description (as `README.md`), comments (in its `comms/`), linked emails and files, attachments and event history, and its old id in `aliases`. Old statuses map as `open` → `backlog`, `in_progress` → `active`, `blocked` → `waiting`, `resolved` → `review`, `closed` → `completed`, `cancelled` → `archived`. `tickets/` is then removed. Validation warns about a folio that still has one.
+Folios written before 1.0 kept work items in a directory of their own (`TK-NNN` ids). `folio.upgradeLayout()` converts each into a folio inside the folio (an item with a parent goes inside its parent's folio), keeping its fields, description (as `README.md`), comments (in its `comms/`), linked emails and files, attachments and event history, and its old id in `aliases`. Old statuses map as `open` → `backlog`, `in_progress` → `active`, `blocked` → `waiting`, `resolved` → `review`, `closed` → `completed`, `cancelled` → `archived`. That directory is then removed, and a type only earlier versions used is cleared. Validation warns about a folio that still has old items.
 
 ### 5.7 CC: people and channels kept informed
 
-Every folio has its own **CC list**, like the CC line of a help-desk ticket but not tied to email. It names who hears about the folio's conversation, wherever they are:
+Every folio has its own **CC list**, like the CC line of a help-desk case but not tied to email. It names who hears about the folio's conversation, wherever they are:
 
 | Channel | Address | Typed as |
 |---|---|---|
@@ -558,7 +558,7 @@ Sources provide the original context for work. The product should preserve origi
 
 ### 8.1 Email
 
-> **In version 1:** an email reaches a folio in three ways, all filed by the same rule (8.6): **forwarding** it to the folio's intake address (`<folio-id>@<intake domain>`; every folio, including one inside another, has its own; a converted ticket's old `+TK-001` address still reaches the folio that took its place), **dragging** it from a desktop mail client (Apple Mail, Outlook, Thunderbird give the browser an `.eml` or `.msg` file), or adding an `.eml` file by hand. The hosting service accepts a forwarded email only from a sender who may write to that folio. Not yet: thread matching for replies, and splitting a forwarded wrapper from the original it carries.
+> **In version 1:** an email reaches a folio in three ways, all filed by the same rule (8.6): **forwarding** it to the folio's intake address (`<folio-id>@<intake domain>`; every folio, including one inside another, has its own), **dragging** it from a desktop mail client (Apple Mail, Outlook, Thunderbird give the browser an `.eml` or `.msg` file), or adding an `.eml` file by hand. The hosting service accepts a forwarded email only from a sender who may write to that folio. Not yet: thread matching for replies, and splitting a forwarded wrapper from the original it carries.
 >
 > Each email is stored once, as received, at `comms/<date>-<subject>-<hash>.eml`, with every other message (3.1.2) (unless it carries content 3.7 forbids or data-file attachments: then the folio keeps a text copy with its original headers, its readable text scrubbed, an `X-Folio-Copy` header and a list of where each attachment went; data attachments are summarised as in 8.4.1, other attachments go to `attachments/<email>/`, and the original is held temporarily) (Outlook `.msg` files keep their own format). The date is the email's own `Date`, the hash comes from its `Message-ID` (or its bytes), so a second delivery of the same message is recognised and not stored again. The header summary (from, to, subject, date, message id) is read from the file whenever it is needed, and recorded with the intake provenance in `history/intake/`.
 
@@ -792,9 +792,9 @@ A folder opens as a **board**, like a project's task board: every folio inside i
 A folio opens as itself, like a case in a help desk or a task in Asana, not as a folder. Its main view shows, on one page:
 
 - Title, state (with the reason when it is blocked, waiting or a draft) and Mark Done.
-- Description, files (attachments and notes), and the folios inside it (sub-tickets), with a one-line add.
+- Description and files (attachments and notes).
 - The whole conversation from `comms/` (emails, comments, updates, agents' reports) in time order, with a composer that takes text and files.
-- A details column: status, type, owner, target date, tags, what it waits on, **CC** (people and channels, each showing whether this deployment delivers to it), its email address, repositories, recent changes and sharing.
+- A side column: the folios inside it (sub-folios), with a one-line add; details: status, type, owner, target date, tags, what it waits on, **CC** (people and channels, each showing whether this deployment delivers to it), its email address, repositories, recent changes and sharing.
 
 Everything is edited in place, and anything dropped on the page is added to the folio. Folios inside a folio are secondary: they show within it, not alongside it in lists of folios or on its folder's board (its card counts them). For a small folio this page should feel simple rather than empty; for a larger one it should offer a concise route to the detail without becoming a dashboard requiring constant maintenance.
 

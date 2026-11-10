@@ -2,7 +2,7 @@ import { ValidationError } from './errors.js';
 import { emailAddress } from './email.js';
 
 /**
- * CC: the people and channels kept informed about a folio (spec 5.7). Like the CC line of a help-desk ticket, but
+ * CC: the people and channels kept informed about a folio (spec 5.7). Like the CC line of a help-desk case, but
  * not tied to email: a CC can be an email address, a Slack channel or person, a phone number for SMS, or any other
  * channel a deployment knows how to reach. The list is per folio and lives in folio.json `cc`:
  *

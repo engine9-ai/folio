@@ -21,7 +21,7 @@ test('init refuses to overwrite an existing folio', async () => {
   await assert.rejects(Folio.init(fs, { title: 'Again' }), ConflictError);
 });
 
-test('a ticket is a folio inside a folio: its own folder, folio.json and README', async () => {
+test('a sub-folio is a folio inside a folio: its own folder, folio.json and README', async () => {
   const { folio, fs } = await make();
   const r = await folio.createChild({ title: 'Password reset link loops back', type: 'bug', tags: 'auth, mobile', description: 'Seen on Safari only.' }, { actor });
   assert.equal(r.dir, 'password-reset-link-loops-back');

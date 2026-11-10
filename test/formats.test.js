@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Folio, MemoryFs, ValidationError, classify, detectTextFormat, intakeChoices, nestedFolioDirs, titleOfText } from '../src/index.js';
+import { FOLIO_TYPES, Folio, LEGACY_TYPES, MemoryFs, ValidationError, classify, detectTextFormat, intakeChoices, nestedFolioDirs, titleOfText } from '../src/index.js';
 
 const now = () => '2026-11-09T15:00:00.000Z';
 const actor = { type: 'user', id: 'sam@example.com' };
@@ -183,7 +183,7 @@ test('upgradeLayout moves an older folio: emails to comms/, uploads to attachmen
   assert.equal((await folio.upgradeLayout()).moved, 0);
 });
 
-test('upgradeLayout turns tickets into folios inside the folio, keeping everything they had', async () => {
+test('upgradeLayout turns work items from the older layout into folios inside the folio, keeping everything they had', async () => {
   const fs = new MemoryFs();
   const folio = await Folio.init(fs, { title: 'Support', now });
   const ev = (id, revision, type, extra = {}) => fs.write(`tickets/${id}/events/${String(revision).padStart(6, '0')}.json`, JSON.stringify({ ticket: id, revision, at: `2026-11-0${revision}T10:00:00.000Z`, actor: { type: 'user', id: 'pat@x.example' }, via: 'web', type, ...extra }));
@@ -200,7 +200,7 @@ test('upgradeLayout turns tickets into folios inside the folio, keeping everythi
   await ticket({ id: 'TK-004', title: 'Old idea', status: 'cancelled' });
   const r = await folio.upgradeLayout({ actor });
   assert.equal(r.converted.length, 4);
-  assert.match(r.summary, /Turned 4 tickets into folios/);
+  assert.match(r.summary, /Turned 4 items from the older layout into folios/);
   assert.deepEqual(await fs.list('tickets'), []);
   const byAlias = Object.fromEntries(r.converted.map((c) => [c.alias, c]));
   assert.equal(byAlias['TK-001'].dir, 'password-reset-link-loops');
@@ -223,4 +223,16 @@ test('upgradeLayout turns tickets into folios inside the folio, keeping everythi
   assert.deepEqual((await after.children()).map((c) => c.title).sort(), ['Old idea', 'Password reset link loops', 'Release the fix']);
   assert.equal((await after.validate()).ok, true);
   assert.equal((await after.upgradeLayout()).converted.length, 0);
+});
+
+test('upgradeLayout clears a type only older versions used', async () => {
+  const fs = new MemoryFs();
+  const folio = await Folio.init(fs, { title: 'Old one', now: () => '2026-11-01T00:00:00.000Z' });
+  const m = JSON.parse((await fs.read('folio.json')).text);
+  m.type = LEGACY_TYPES[0];
+  await fs.write('folio.json', JSON.stringify(m));
+  const r = await folio.upgradeLayout();
+  assert.equal(r.retyped, true);
+  assert.equal((await folio.manifest()).manifest.type, undefined);
+  assert.ok(!FOLIO_TYPES.includes(LEGACY_TYPES[0]));
 });

@@ -6,10 +6,10 @@ import { basename, join, relative } from 'node:path';
 
 const USAGE = `folio: work with folio folders
 
-  Everything is a folio: a folder with a folio.json. A ticket, a task or a sub-project is a folio inside a folio.
+  Everything is a folio: a folder with a folio.json. A task, a bug or a sub-project is a folio inside a folio (a sub-folio).
 
   folio init <dir> --title "Title" [--summary "..."] [--type project] [--status active]
-  folio new <dir> --title "..." [--type ticket] [--status backlog] [--tags "a, b"] [--owner ...] [--description "..."]
+  folio new <dir> --title "..." [--type task] [--status backlog] [--tags "a, b"] [--owner ...] [--description "..."]
       creates a folio inside <dir> (in its own folder, named after the title)
   folio list <dir>                                     the folios inside, with status and readiness
   folio set <dir> --status active [--owner ...] [--tags "a, b"] [--type ...] [--title ...] [--target-date YYYY-MM-DD]
@@ -24,12 +24,12 @@ const USAGE = `folio: work with folio folders
       data files and logs -> a summary in sources/data, the file itself held in ~/.folio/hold
       (or FOLIO_HOLD_DIR, or --hold-dir) for 30 days. See GUIDE.md for what folios must not hold.
       Text is saved as .md, .html or .txt by what it looks like; --as picks the type instead.
-      An Asana or Trello JSON export (or { "tickets": [...] }) becomes folios inside this one.
+      An Asana or Trello JSON export (or { "folios": [...] }) becomes folios inside this one.
   folio import <dir> <export.json> [--format asana|trello|folio-list] [--dry-run]
   folio retype <dir> <path> <markdown|html|text>     change a note's file type
   folio comment <dir> "text" [--kind comment|update|agent]
   folio comms <dir>                                    the conversation in time order
-  folio upgrade <dir>                                  bring an older folio up to date (comms/, attachments/, tickets -> folios)
+  folio upgrade <dir>                                  bring an older folio up to date (comms/, attachments/, older work items -> folios)
   folio repo add <dir> <owner/name | url> [--purpose "..."] [--role primary]
   folio repo list <dir>
   folio search <dir> <text>
@@ -145,7 +145,7 @@ async function main() {
 
   if (cmd === 'new') {
     if (!flags.title) throw new Error('--title is required');
-    const r = await folio.createChild({ title: String(flags.title), type: flags.type ? String(flags.type) : 'ticket', status: flags.status ? String(flags.status) : 'backlog', tags: flags.tags && String(flags.tags), owner: flags.owner && String(flags.owner), description: flags.description && String(flags.description) }, { actor, via });
+    const r = await folio.createChild({ title: String(flags.title), ...(flags.type ? { type: String(flags.type) } : {}), status: flags.status ? String(flags.status) : 'backlog', tags: flags.tags && String(flags.tags), owner: flags.owner && String(flags.owner), description: flags.description && String(flags.description) }, { actor, via });
     return out(`Created ${r.id} in ${join(dir, r.dir)}`);
   }
   if (cmd === 'list') {

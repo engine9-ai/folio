@@ -2,6 +2,7 @@ import { ValidationError } from './errors.js';
 import { htmlToText } from './text-format.js';
 import { FOLIO_STATUSES } from './manifest.js';
 import { FOLIO_TYPES } from './relations.js';
+import { currentType } from './legacy-names.js';
 
 /**
  * Importing work from other tools. An export (a JSON file, or JSON pasted as text) is recognised by its shape and
@@ -12,7 +13,6 @@ import { FOLIO_TYPES } from './relations.js';
  *                  dependencies and comments (stories) are kept.
  *   trello         A Trello board export: { cards, lists, labels, actions? }.
  *   folio-list     { folios: [{ title, description?, type?, status?, tags?, ... }] }, for agents and scripts
- *                  (the older { tickets: [...] } is read too).
  *
  * Each imported folio remembers where it came from in `external` ({ source, id, url }), so importing the same
  * export again skips what is already there. Nothing else from the export is kept in the folio.
@@ -86,7 +86,7 @@ function asanaPlan(doc) {
     const sections = [...new Set([...(t.memberships || []).map((m) => m?.section?.name).filter(Boolean), ...(currentSection && !parentGid ? [currentSection] : [])])].filter(notSection);
     const fields = Array.isArray(t.custom_fields) ? t.custom_fields : [];
     const fieldValue = (f) => f?.enum_value?.name ?? f?.display_value ?? f?.text_value ?? f?.number_value ?? (Array.isArray(f?.multi_enum_values) ? f.multi_enum_values.map((v) => v.name).join(', ') : null);
-    const tField = fields.find((f) => /^(type|kind|category|ticket type)$/i.test(str(f?.name).trim()));
+    const tField = fields.find((f) => /^(type|kind|category|task type)$/i.test(str(f?.name).trim()));
     const sField = fields.find((f) => /^status$/i.test(str(f?.name).trim()));
     const others = fields.filter((f) => f !== tField && f !== sField && fieldValue(f) !== null && fieldValue(f) !== '');
     const notes = str(t.notes).trim() || (t.html_notes ? htmlToText(t.html_notes) : '');
@@ -104,7 +104,7 @@ function asanaPlan(doc) {
       key: t.gid,
       title: t.name.trim() || `Asana task ${t.gid}`,
       description: [notes, footer.join('\n')].filter(Boolean).join('\n\n---\n'),
-      type: typeFrom(fieldValue(tField)) || (t.resource_subtype === 'approval' ? 'review' : 'ticket'),
+      type: typeFrom(fieldValue(tField)) || (t.resource_subtype === 'approval' ? 'review' : 'task'),
       status,
       ...(status === 'completed' ? { resolution: 'completed' } : {}),
       tags: [...sections, ...(t.tags || []).map((g) => g?.name).filter(Boolean), ...(t.resource_subtype === 'milestone' ? ['milestone'] : [])],
@@ -150,7 +150,7 @@ function trelloPlan(doc) {
         key: c.id,
         title: c.name.trim() || `Trello card ${c.id}`,
         description: [str(c.desc).trim(), `Imported from Trello${c.shortUrl || c.url ? `: ${c.shortUrl || c.url}` : ''}`].filter(Boolean).join('\n\n---\n'),
-        type: 'ticket',
+        type: 'task',
         status,
         ...(status === 'completed' ? { resolution: 'completed' } : status === 'archived' ? { resolution: 'cancelled' } : {}),
         tags: [...(list?.name ? [list.name] : []), ...tagNames],
@@ -166,27 +166,27 @@ function trelloPlan(doc) {
 
 // ---- Folio's own list ----
 
-const listOf = (doc) => (doc && typeof doc === 'object' && !Array.isArray(doc) ? (Array.isArray(doc.folios) ? doc.folios : Array.isArray(doc.tickets) ? doc.tickets : null) : null);
+const listOf = (doc) => (doc && typeof doc === 'object' && !Array.isArray(doc) ? (Array.isArray(doc.folios) ? doc.folios : null) : null);
 
-function folioTicketsDetect(doc) {
+function folioListDetect(doc) {
   const list = listOf(doc);
   if (!list?.length || !list.every((t) => t && typeof t === 'object' && typeof t.title === 'string')) return null;
   return { items: list.length, ...(doc.title ? { project: str(doc.title) } : {}) };
 }
 
-function folioTicketsPlan(doc) {
+function folioListPlan(doc) {
   return listOf(doc).map((t, i) => {
     // Entries without an id get a positional key that cannot collide with a real id.
     const key = t.id ?? t.key ?? t.external?.id;
     const k = key === undefined || key === null || key === '' ? `#${i + 1}` : str(key);
-    // Folio statuses, or the older ticket statuses.
+    // Folio statuses, or statuses from older versions.
     const OLD = { open: 'backlog', in_progress: 'active', blocked: 'waiting', resolved: 'review', closed: 'completed', cancelled: 'archived' };
     const status = OLD[t.status] || (FOLIO_STATUSES.includes(t.status) ? t.status : 'backlog');
     return {
       key: k,
       title: t.title,
       description: str(t.description),
-      type: typeFrom(t.type) || (t.type && /^[a-z][a-z0-9_-]{0,39}$/.test(t.type) ? t.type : 'ticket'),
+      type: typeFrom(t.type) || (t.type && /^[a-z][a-z0-9_-]{0,39}$/.test(t.type) ? currentType(t.type) : undefined),
       status,
       ...(status === 'completed' ? { resolution: str(t.resolution) || 'completed' } : t.resolution ? { resolution: str(t.resolution) } : {}),
       tags: Array.isArray(t.tags) ? t.tags.map(str) : typeof t.tags === 'string' ? t.tags.split(',') : [],
@@ -205,7 +205,7 @@ function folioTicketsPlan(doc) {
 export const IMPORTERS = Object.freeze([
   { format: 'asana', label: 'Asana', detect: asanaDetect, plan: asanaPlan },
   { format: 'trello', label: 'Trello', detect: trelloDetect, plan: trelloPlan },
-  { format: 'folio-list', label: 'Folio list', detect: folioTicketsDetect, plan: folioTicketsPlan },
+  { format: 'folio-list', label: 'Folio list', detect: folioListDetect, plan: folioListPlan },
 ]);
 export const IMPORT_FORMATS = IMPORTERS.map((i) => i.format);
 

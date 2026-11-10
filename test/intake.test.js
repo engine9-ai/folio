@@ -105,7 +105,7 @@ test('dropped on a folio inside a folio: files, emails, links and comments go to
   assert.equal((await validateFolio(fs)).ok, true);
 });
 
-test('links and notes outside tickets; several URLs at once', async () => {
+test('links and notes; several URLs at once', async () => {
   const { folio, fs } = await make();
   const r = await folio.add({ text: 'https://example.com/a\nhttps://github.com/a/b' }, { actor });
   assert.deepEqual(r.map((x) => x.kind), ['link', 'repository']);

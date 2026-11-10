@@ -37,7 +37,7 @@ import { NodeFs } from '@engine9/folio/node';
 const folio = await Folio.open(new NodeFs('./examples/website-refresh'), { nested: 'detect' });
 const actor = { type: 'user', id: 'sam@example.com' };
 
-// Work is folios inside folios. A ticket is a folio of type 'ticket'.
+// Work is folios inside folios (sub-folios).
 const bug = await folio.createChild({ title: 'Donate button spins', type: 'bug' }, { actor });
 await bug.folio.edit({ status: 'active', owner: 'robin@example.com', tags: 'payments, safari' }, { actor });
 await bug.folio.relate('blocked_by', 'fol-ab12cd', { actor });
@@ -66,7 +66,7 @@ await folio.setTextFormat(note.path, 'html', { actor });                      //
 // Exports from other tools become folios inside this one; importing again skips what is already there.
 await folio.import(asanaJson, { actor });                                     // or folio.add({ name: 'x.json', data })
 
-// Folios written with tickets/ (before 1.0): convert them into folios inside the folio.
+// Folios written before 1.0: convert their work items into folios inside the folio.
 await folio.upgradeLayout({ actor });               // also moves sources/email → comms, uploads → attachments
 ```
 

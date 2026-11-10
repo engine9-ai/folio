@@ -85,7 +85,7 @@ test('without temporary storage only the summary is kept', async () => {
 
 test('a small query result with no personal data stays an ordinary file', async () => {
   const { fs, folio, hold } = await make();
-  const [r] = await folio.add({ name: 'counts.csv', data: enc('campaign_id,gifts,total\nC-1,12,340.50\nC-2,3,75\n') }, { actor, ticket: undefined });
+  const [r] = await folio.add({ name: 'counts.csv', data: enc('campaign_id,gifts,total\nC-1,12,340.50\nC-2,3,75\n') }, { actor });
   assert.equal(r.kind, 'file');
   assert.equal(r.path, 'attachments/counts.csv');
   assert.equal(hold.items.size, 0);

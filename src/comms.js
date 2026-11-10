@@ -118,8 +118,8 @@ export const isEmailPath = (p) => EMAIL_FILE.test(p) && EMAIL_DIRS.some((d) => p
 
 /**
  * The conversation, newest last: every message in comms/, emails (also from the older sources/email/), and
- * comments recorded as ticket events by earlier versions. Each item:
- *   { kind, path, at, author, text, ticket?, subject?, from?, to?, truncated? }
+ * comments recorded by earlier versions. Each item:
+ *   { kind, path, at, author, text, subject?, from?, to?, truncated? }
  * `cc` (the folio's CC list) marks messages that came from a CC with `cc: <its key>`. `limit` keeps the newest.
  */
 export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc = [] } = {}) {

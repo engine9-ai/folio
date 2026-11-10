@@ -59,7 +59,7 @@ test('detectImport recognises Asana, Trello and Folio lists, and nothing else', 
   assert.equal(detectImport({ data: ASANA.data[1] }).format, 'asana'); // one task from the API
   assert.equal(detectImport({ cards: [{ id: 'c1', name: 'A', idList: 'l1' }], lists: [{ id: 'l1', name: 'To do' }] }).format, 'trello');
   assert.equal(detectImport({ folios: [{ title: 'A' }] }).format, 'folio-list');
-  assert.equal(detectImport({ tickets: [{ title: 'A' }] }).format, 'folio-list'); // the older shape
+  assert.equal(detectImport({ tickets: [{ title: 'A' }] }), null); // the shape before 1.0 is no longer read
   assert.equal(detectImport([{ id: 1, email: 'a@b.example' }]), null);
   assert.equal(detectImport({ data: [{ gid: '1', name: 'x' }] }), null); // gid and name alone are not enough
   assert.equal(detectImport({ setting: true }), null);
@@ -79,7 +79,7 @@ test('an Asana export becomes folios: subtasks inside their task, sections, tags
   const page = by('Redesign donate page');
   assert.equal(page.dir, 'redesign-donate-page');
   const m = page.manifest;
-  assert.deepEqual([m.type, m.status, m.priority, m.owner, m.target_date], ['ticket', 'active', undefined, 'Riley Chen', '2026-12-01']);
+  assert.deepEqual([m.type, m.status, m.priority, m.owner, m.target_date], ['task', 'active', undefined, 'Riley Chen', '2026-12-01']);
   assert.deepEqual(m.tags, ['In Progress', 'Design']);
   assert.deepEqual(m.external, { source: 'asana', id: '1201', url: 'https://app.asana.com/0/42/1201', created_at: '2026-10-01T10:00:00.000Z' });
   assert.deepEqual(m.links, [{ type: 'url', label: 'Asana task', url: 'https://app.asana.com/0/42/1201' }]);
@@ -157,7 +157,7 @@ test('dropping or pasting an export imports it; "as" keeps it as a file instead'
   assert.throws(() => classify({ text: '{"a":1}', as: 'import' }), /not an export Folio can import/);
 });
 
-test('a Folio list: statuses, custom types, blockers by key, and older ticket statuses', async () => {
+test('a Folio list: statuses, custom types, blockers by key, and statuses from older versions', async () => {
   const { folio, fs } = await make();
   await folio.import({ folios: [{ id: 'a', title: 'One', type: 'research-spike' }, { id: 'b', title: 'Two', status: 'closed', blocked_by: ['a'] }, { title: 'Three', status: 'review' }] }, { actor });
   const all = await kids(fs);
