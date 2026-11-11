@@ -5,7 +5,8 @@ import { slugify } from './intake.js';
 /**
  * Tasks: well-defined work run somewhere else, with a copy kept in the folio (SPEC 5.8).
  *
- * A task is not open-ended ("get the groceries", "research this"). It is one run of a named piece of work on an
+ * A task is never a to-do, reminder, checklist item or open-ended work ("get the groceries", "research this"):
+ * those are sub-folios (folios inside the folio). A task is only one run of a named piece of work on an
  * execution platform, with a definite path/name, options and output, that completes or fails within a known time
  * window. The definition is the platform's: Folio copies the engine9 task model (Task API, engine9-ai/skills
  * e9-tasks-api), so an agent can record what it scheduled in the platform's own words:

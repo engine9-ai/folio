@@ -494,7 +494,16 @@ The common case: a request comes in from a client; someone acknowledges it at on
 
 Some of the work in a folio is done by **tasks**: standard, well-defined runs on an execution platform, started by an agent or a person while working the folio. Folio's task is **engine9's task**, copied rather than reinvented (the engine9 Task API and its skills, `engine9-ai/skills` `e9-tasks-api` and `e9-dev-tasks`, are the authority for what a task is). "Task" is used loosely in many tools; here it means only this.
 
-A task is not open-ended work ("get the groceries", "research this"); that is a folio, perhaps of type `task`. A task has:
+**Tasks are hard-defined, never a to-do list.** A task exists only where a platform defines it and runs it. It is not a reminder, a checklist item, a human to-do ("get the groceries", "call the client", "review the copy") or open-ended work ("research this"), even when it is small, and even when a script or agent will do it. If it has no platform definition (a worker path and method, or a flow) to schedule, no run id to look up and no state the platform reports, it is not a task.
+
+**Anything else to be tracked within a folio is a sub-folio** (5): a folio inside the folio, with `type: "task"` (or `bug`, `request`...) if that helps, a status on the board, an owner, blockers, its own conversation and readiness. The word "task" as a *folio type* is ordinary work; a *Task* in `tasks/` is a platform run. When in doubt, make a sub-folio.
+
+| Use | For |
+|---|---|
+| A **sub-folio** | Work people or agents do and track: to-dos, steps, checklists, follow-ups, research, reviews, anything a person marks done |
+| A **task** (`tasks/`) | A run of a defined worker method or flow on an execution platform, started and finished there |
+
+A task has:
 
 - **A definite name**: one worker method (`path` + `method`, e.g. `@engine9/plugins/e9workers:EchoWorker` + `echo`; engine9's on-demand task) **or** a predefined flow (`flow_id`, its slug or a remote dataflow id, with optional per-step overrides `tasks: [{ task_key, options }]`). Never both.
 - **Options**: the input it runs with.
