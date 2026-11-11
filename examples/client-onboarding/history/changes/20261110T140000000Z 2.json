@@ -1,0 +1,24 @@
+{
+  "at": "2026-11-10T14:00:00.000Z",
+  "actor": {
+    "type": "user",
+    "id": "sam@example.com",
+    "name": "Sam (account manager)"
+  },
+  "via": "folio-lib",
+  "type": "updated",
+  "changes": {
+    "connections": {
+      "from": null,
+      "to": [
+        {
+          "type": "engine9",
+          "alias": "acme",
+          "account_id": "acme",
+          "base_url": "https://data.engine9.ai",
+          "purpose": "Where this folio's tasks run"
+        }
+      ]
+    }
+  }
+}

@@ -32,6 +32,11 @@ const USAGE = `folio: work with folio folders
   folio repo add <dir> <owner/name | url> [--purpose "..."] [--role primary]
   folio repo list <dir>
   folio search <dir> <text>
+  folio task list <dir>                                the folio's tasks: well-defined work run elsewhere (SPEC 5.8)
+  folio task add <dir> --env engine9/acme (--path <plugin path> --method <m> | --flow <flow_id>) [--title ...]
+      [--options '{"k":"v"}'] [--within <minutes>] [--flow-run <id>] [--task-run <id>] [--state PENDING]
+  folio task set <dir> <tsk-id | folder> [--state COMPLETED] [--records N] [--result "..."] [--error "..."]
+      [--output output.json] [--flow-run <id>] [--task-run <id>] [--note "..."]
 `;
 
 function parse(argv) {
@@ -66,7 +71,7 @@ async function main() {
   }
 
   // `repo` takes a subcommand first: folio repo list <dir>. Others: folio validate <dir>.
-  const grouped = cmd === 'repo';
+  const grouped = cmd === 'repo' || cmd === 'task';
   const sub0 = grouped ? rest[0] : undefined;
   const [dir, ...tail] = grouped ? rest.slice(1) : rest;
   const args = grouped ? [sub0, ...tail] : tail;
@@ -139,6 +144,37 @@ async function main() {
       const added = await folio.addRepository({ ...(a[0].includes('://') ? { url: a[0] } : { repository: a[0] }), ...(flags.purpose ? { purpose: String(flags.purpose) } : {}), ...(flags.role ? { role: String(flags.role) } : {}) }, { actor });
       return out(added);
     }
+  }
+
+  if (cmd === 'task') {
+    const [sub, ...a] = args;
+    const json = (v, what) => {
+      try {
+        return JSON.parse(String(v));
+      } catch {
+        throw new Error(`${what} must be JSON`);
+      }
+    };
+    const run = flags['flow-run'] || flags['task-run'] ? { ...(flags['flow-run'] ? { flow_run_id: String(flags['flow-run']) } : {}), ...(flags['task-run'] ? { task_run_ids: [String(flags['task-run'])] } : {}) } : undefined;
+    if (sub === 'list') {
+      for (const t of await folio.tasks()) console.log(`${t.id}  ${t.state.padEnd(9)} ${t.overdue ? 'OVERDUE ' : ''}${t.title}  ${t.environment.platform}/${t.environment.account_id}  ${t.target}  (${t.path})`);
+      return;
+    }
+    if (sub === 'add') {
+      const r = await folio.addTask({ environment: flags.env && String(flags.env), title: flags.title && String(flags.title), path: flags.path && String(flags.path), method: flags.method && String(flags.method), flow_id: flags.flow && String(flags.flow), options: flags.options ? json(flags.options, '--options') : undefined, within_minutes: flags.within, state: flags.state && String(flags.state), run }, { actor, via });
+      return out(`Recorded ${r.id} in ${r.path}`);
+    }
+    if (sub === 'set') {
+      if (!a[0]) throw new Error('usage: folio task set <dir> <tsk-id | folder> --state ...');
+      const patch = { run };
+      for (const k of ['state', 'result', 'note']) if (flags[k] !== undefined) patch[k] = String(flags[k]);
+      if (flags.records !== undefined) patch.records = Number(flags.records);
+      if (flags.error !== undefined) patch.errors = [String(flags.error)];
+      if (flags.output !== undefined) patch.output = json(await readFile(String(flags.output), 'utf8'), '--output');
+      const r = await folio.updateTask(a[0], patch, { actor, via });
+      return out(`${r.task.title}: ${r.task.state.type}${r.changed.length ? ` (changed ${r.changed.join(', ')})` : ' (no change)'}`);
+    }
+    throw new Error('usage: folio task <list|add|set> <dir> ...');
   }
 
   if (cmd === 'new') {

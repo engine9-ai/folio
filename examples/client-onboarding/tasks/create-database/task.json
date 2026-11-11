@@ -1,0 +1,71 @@
+{
+  "format": "folio-task",
+  "format_revision": 1,
+  "id": "tsk-dbacme",
+  "title": "Create database",
+  "environment": {
+    "platform": "engine9",
+    "account_id": "acme"
+  },
+  "kind": "on_demand",
+  "path": "@engine9/plugins/e9workers:DatabaseWorker",
+  "method": "createDatabase",
+  "options": {
+    "region": "us-east"
+  },
+  "complete_by": "2026-11-10T14:35:00.000Z",
+  "run": {
+    "flow_run_id": "0196f1d0-87cf-7b6f-b9a0-8f5d2d6c2f9e",
+    "task_run_ids": [
+      "0196f1d1-2c55-7d89-9c24-6fe4f7fd93ea"
+    ]
+  },
+  "state": {
+    "type": "COMPLETED"
+  },
+  "created_at": "2026-11-10T14:05:00.000Z",
+  "updated_at": "2026-11-10T14:12:00.000Z",
+  "created_by": {
+    "type": "agent",
+    "id": "claude",
+    "on_behalf_of": "sam@example.com"
+  },
+  "history": [
+    {
+      "at": "2026-11-10T14:05:00.000Z",
+      "state": "PENDING",
+      "actor": {
+        "type": "agent",
+        "id": "claude",
+        "on_behalf_of": "sam@example.com"
+      },
+      "note": "recorded",
+      "via": "mcp"
+    },
+    {
+      "at": "2026-11-10T14:06:00.000Z",
+      "state": "RUNNING",
+      "actor": {
+        "type": "agent",
+        "id": "claude",
+        "on_behalf_of": "sam@example.com"
+      },
+      "via": "mcp"
+    },
+    {
+      "at": "2026-11-10T14:12:00.000Z",
+      "state": "COMPLETED",
+      "actor": {
+        "type": "agent",
+        "id": "claude",
+        "on_behalf_of": "sam@example.com"
+      },
+      "via": "mcp"
+    }
+  ],
+  "start_time": "2026-11-10T14:06:00.000Z",
+  "records": 1,
+  "result": "Database acme_main created in us-east.",
+  "end_time": "2026-11-10T14:12:00.000Z",
+  "output": "output.json"
+}

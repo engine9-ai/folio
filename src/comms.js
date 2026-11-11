@@ -20,7 +20,8 @@ import { authorChannel, ccAudience, ccKey, findCc } from './cc.js';
  *
  * A message file (.comment/.update/.agent/.chat .json):
  *   { "at", "kind", "author": { type, id, name?, on_behalf_of?, channel?, workspace? }, "via", "text",
- *     "attachments"?: [paths], "imported"?: { source, author, at }, "ref"?: { channel, id } }
+ *     "attachments"?: [paths], "imported"?: { source, author, at }, "ref"?: { channel, id }, "task"?: "tasks/<dir>" }
+ * `task` says the message is about one of the folio's tasks (tasks.js): its start, or how it ended.
  *
  * Two audiences (cc.js). A message with no `to` is for the team: everyone who can open the folio, and the CCs on
  * its team list. `to: [cc keys]` makes it a message to the client: sent to exactly those client CCs (and seen by
@@ -74,7 +75,7 @@ export function messageName(at, text, kind) {
  * Write a message to comms/. Text is scrubbed of card numbers and credentials (spec 3.7). Returns
  * { path, message, removed? }.
  */
-export async function postMessage(folio, { kind = 'comment', text, attachments = [], actor, via = 'folio-lib', at = null, imported = null, ref = null, to = null }) {
+export async function postMessage(folio, { kind = 'comment', text, attachments = [], actor, via = 'folio-lib', at = null, imported = null, ref = null, to = null, task = null }) {
   if (!MESSAGE_KINDS.includes(kind)) throw new ValidationError(`A message is one of ${MESSAGE_KINDS.join(', ')}`);
   if (!text || !String(text).trim()) throw new ValidationError('A message cannot be empty');
   if (to !== null && (!Array.isArray(to) || !to.length || to.some((k) => typeof k !== 'string' || !k))) throw new ValidationError('`to` lists the keys of the client CCs a message goes to');
@@ -90,6 +91,7 @@ export async function postMessage(folio, { kind = 'comment', text, attachments =
     ...(imported ? { imported } : {}),
     ...(ref ? { ref } : {}),
     ...(to ? { to: [...new Set(to)] } : {}),
+    ...(task ? { task } : {}),
   };
   let name = messageName(when, clean, kind);
   if (ref) {
@@ -157,7 +159,7 @@ export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc 
       continue;
     }
     const text = String(m.text || '');
-    items.push({ kind, path, at: m.at || dateFromName(path), author: m.author || { type: 'unknown' }, via: m.via, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(m.attachments ? { attachments: m.attachments } : {}), ...(Array.isArray(m.to) && m.to.length ? { to: m.to.map(String) } : {}), ...(m.imported ? { imported: m.imported } : {}) });
+    items.push({ kind, path, at: m.at || dateFromName(path), author: m.author || { type: 'unknown' }, via: m.via, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(m.attachments ? { attachments: m.attachments } : {}), ...(Array.isArray(m.to) && m.to.length ? { to: m.to.map(String) } : {}), ...(m.imported ? { imported: m.imported } : {}), ...(m.task ? { task: m.task } : {}) });
   }
   // Credit messages from the folio's CCs: an email from a CC'd address, a reply from a CC'd Slack channel.
   if (cc.length)

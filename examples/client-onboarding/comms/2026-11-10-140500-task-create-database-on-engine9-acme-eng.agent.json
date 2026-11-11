@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-10T14:05:00.000Z",
+  "kind": "agent",
+  "author": {
+    "type": "agent",
+    "id": "claude",
+    "on_behalf_of": "sam@example.com"
+  },
+  "via": "mcp",
+  "text": "Task “Create database” on engine9/acme (@engine9/plugins/e9workers:DatabaseWorker · createDatabase): pending, flow run 0196f1d0-87cf-7b6f-b9a0-8f5d2d6c2f9e; due to finish by 2026-11-10 14:35 UTC. Record: tasks/create-database",
+  "task": "tasks/create-database"
+}

@@ -1,0 +1,25 @@
+{
+  "format": "folio",
+  "format_revision": 1,
+  "id": "fol-acmeup",
+  "title": "Spin up client Acme",
+  "summary": "Set up Acme on engine9: database, plugins, first sync.",
+  "status": "active",
+  "created_at": "2026-11-10T14:00:00.000Z",
+  "updated_at": "2026-11-10T14:00:00.000Z",
+  "tags": [
+    "onboarding"
+  ],
+  "type": "project",
+  "owner": "sam@example.com",
+  "outcome": "Acme has a working engine9 account with its plugins installed and a first nightly sync completed.",
+  "connections": [
+    {
+      "type": "engine9",
+      "alias": "acme",
+      "account_id": "acme",
+      "base_url": "https://data.engine9.ai",
+      "purpose": "Where this folio's tasks run"
+    }
+  ]
+}

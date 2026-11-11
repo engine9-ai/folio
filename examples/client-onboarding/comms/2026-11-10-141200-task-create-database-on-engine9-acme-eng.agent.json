@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-10T14:12:00.000Z",
+  "kind": "agent",
+  "author": {
+    "type": "agent",
+    "id": "claude",
+    "on_behalf_of": "sam@example.com"
+  },
+  "via": "mcp",
+  "text": "Task “Create database” on engine9/acme (@engine9/plugins/e9workers:DatabaseWorker · createDatabase) completed: 1 record. Database acme_main created in us-east.. Record: tasks/create-database",
+  "task": "tasks/create-database"
+}

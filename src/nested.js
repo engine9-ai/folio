@@ -12,12 +12,12 @@ import { normalizePath } from './fs.js';
  *         folio.json
  *
  * A nested folio is its own record: the folio around it does not list, search, validate or write its files, so
- * each can be shared, moved or exported on its own. Folio's own directories (comms/, sources/, notes/ ...) never
+ * each can be shared, moved or exported on its own. Folio's own directories (comms/, sources/, notes/, tasks/ ...) never
  * hold nested folios; a folio.json filed under them is just a file.
  */
 
 /** Top-level directories that belong to a folio's own record and never hold nested folios. */
-export const RESERVED_DIRS = Object.freeze(['comms', 'attachments', 'sources', 'notes', 'history', 'indexes', 'feedback', 'artifacts', 'decisions', 'integrations', 'samples']);
+export const RESERVED_DIRS = Object.freeze(['comms', 'attachments', 'sources', 'notes', 'history', 'indexes', 'feedback', 'artifacts', 'decisions', 'integrations', 'samples', 'tasks']);
 
 /** Can `dir` (folio-relative, e.g. "phase-2" or "work/phase-2") hold a nested folio? */
 export function canHoldFolio(dir) {

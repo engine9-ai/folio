@@ -11,6 +11,7 @@ import { SubFs, normalizePath } from './fs.js';
 import { TEXT_FORMATS, textFormatOf } from './text-format.js';
 import { parseJsonText, planImport } from './import.js';
 import { COMMS_DIR, clientThread, isEmailPath, postMessage, readComms } from './comms.js';
+import { TASKS_DIR, TASK_FILE, TASK_OUTPUT_FILE, applyTaskUpdate, createTaskRecord, environmentLabel, isTaskId, isTerminalState, taskDirName, taskOutputText, taskStateLabel, taskSummary, taskTarget } from './tasks.js';
 import { CC_AUDIENCES, MAX_CC, ccAudience, ccAuthor, ccKey, findCc, normalizeCc, parseCc } from './cc.js';
 
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
@@ -463,6 +464,136 @@ export class Folio {
     return { ...r, cc: ccKey(hit) };
   }
 
+  // ---- tasks: well-defined work run elsewhere (tasks.js, spec 5.8) ----------------
+
+  /**
+   * The folio's tasks, oldest first: [{ id, dir, path, title, environment, kind, target, state, done, overdue,
+   * run, complete_by, records, error, result, ... }]. `state` keeps only tasks in that state; `open` only those
+   * not finished.
+   */
+  async tasks({ state, open = false } = {}) {
+    const paths = (await this.fs.list(TASKS_DIR)).filter((p) => new RegExp(`^${TASKS_DIR}/[^/]+/${TASK_FILE.replace('.', '\\.')}$`).test(p));
+    const files = await mapLimit(paths, READS, (p) => this.fs.read(p));
+    const now = this.now();
+    const out = [];
+    for (const [i, p] of paths.entries()) {
+      try {
+        if (files[i]) out.push(taskSummary(JSON.parse(files[i].text), p.split('/')[1], now));
+      } catch {
+        /* reported by validate() */
+      }
+    }
+    const want = state ? String(state).toUpperCase() : null;
+    return out.filter((t) => (!want || t.state === want) && (!open || !t.done)).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.dir.localeCompare(b.dir));
+  }
+
+  /** Counts of the folio's tasks: { total, open, overdue, by_state: { RUNNING: n, ... } }. */
+  async taskCounts() {
+    const list = await this.tasks();
+    const by_state = {};
+    for (const t of list) by_state[t.state] = (by_state[t.state] || 0) + 1;
+    return { total: list.length, open: list.filter((t) => !t.done).length, overdue: list.filter((t) => t.overdue).length, by_state };
+  }
+
+  /** The folder of a task, from its id, its folder name, or "tasks/<folder>". */
+  async taskDir(ref) {
+    const r = String(ref || '').trim().replace(/\/+$/, '');
+    if (!r) throw new ValidationError('Which task? Give its id (tsk-…) or its folder');
+    const name = r.startsWith(`${TASKS_DIR}/`) ? r.slice(TASKS_DIR.length + 1).split('/')[0] : r;
+    if (!isTaskId(r) && (await this.fs.exists(`${TASKS_DIR}/${name}/${TASK_FILE}`))) return name;
+    const hit = (await this.tasks()).find((t) => t.id === r);
+    if (!hit) throw new NotFoundError(`Task ${r}`);
+    return hit.dir;
+  }
+
+  /** One task: { dir, path, task, etag, output? } (output: the parsed output.json, with `output: true`). */
+  async task(ref, { output = false } = {}) {
+    const dir = await this.taskDir(ref);
+    const cur = await this.fs.read(`${TASKS_DIR}/${dir}/${TASK_FILE}`);
+    if (!cur) throw new NotFoundError(`Task ${ref}`);
+    const task = JSON.parse(cur.text);
+    const out = { dir, path: `${TASKS_DIR}/${dir}`, task, etag: cur.etag, done: isTerminalState(task.state), overdue: taskSummary(task, dir, this.now()).overdue };
+    if (output && task.output) {
+      const o = await this.fs.read(`${TASKS_DIR}/${dir}/${task.output}`);
+      if (o) {
+        try {
+          out.output = JSON.parse(o.text);
+        } catch {
+          out.output = o.text;
+        }
+      }
+    }
+    return out;
+  }
+
+  /** One line for the conversation about a task. */
+  taskMessage(t, dir, kind) {
+    const where = `${environmentLabel(t.environment)} (${taskTarget(t)})`;
+    if (kind === 'recorded') {
+      const run = t.run?.flow_run_id ? `, flow run ${t.run.flow_run_id}` : '';
+      const by = t.complete_by ? `; due to finish by ${t.complete_by.replace('T', ' ').slice(0, 16)} UTC` : '';
+      return `Task “${t.title}” on ${where}: ${taskStateLabel(t.state).toLowerCase()}${run}${by}. Record: ${TASKS_DIR}/${dir}`;
+    }
+    const tail = t.state.type === 'COMPLETED' ? [t.records !== undefined ? `${t.records} ${t.records === 1 ? 'record' : 'records'}` : null, t.result].filter(Boolean).join('. ') : t.errors?.at(-1)?.message || t.result || '';
+    return `Task “${t.title}” on ${where} ${taskStateLabel(t.state).toLowerCase()}${tail ? `: ${tail}` : ''}. Record: ${TASKS_DIR}/${dir}`;
+  }
+
+  /**
+   * Record a task: a copy of what was (or will be) initiated on a platform, in tasks/<folder>/task.json.
+   * `input`: { title?, summary?, description?, environment ("engine9/acme" or { platform, account_id, base_url? }),
+   * path + method, or flow_id (+ tasks: [{ task_key, options }]), options?, tracking_code?, start_after?,
+   * complete_by? or within_minutes?, definition_url?, run?: { flow_run_id, task_run_ids }, state?, output? }.
+   * Posts a line to comms/ saying so (announce: false to skip). Returns { id, dir, path, task }.
+   */
+  async addTask(input = {}, { actor = defaultActor, via = 'folio-lib', announce = true } = {}) {
+    const record = createTaskRecord(input, { now: this.now(), actor });
+    const outputText = input.output !== undefined && input.output !== null ? taskOutputText(input.output) : null;
+    if (outputText) record.output = TASK_OUTPUT_FILE;
+    if (via) record.history[0].via = via;
+    const base = taskDirName(record.title);
+    let dir = null;
+    for (let n = 1; n <= 500 && !dir; n++) {
+      const name = n === 1 ? base : `${base}-${n}`;
+      try {
+        await this.fs.write(`${TASKS_DIR}/${name}/${TASK_FILE}`, json(record), { ifMatch: null, contentType: 'application/json' });
+        dir = name;
+      } catch (e) {
+        if (!(e instanceof ConflictError) && e?.code !== 'conflict') throw e;
+      }
+    }
+    if (!dir) throw new ValidationError('Could not find a free folder name in tasks/');
+    if (outputText) await this.fs.write(`${TASKS_DIR}/${dir}/${TASK_OUTPUT_FILE}`, outputText, { contentType: 'application/json' });
+    if (announce) await postMessage(this, { kind: actor?.type === 'agent' ? 'agent' : 'update', text: this.taskMessage(record, dir, 'recorded'), actor, via, task: `${TASKS_DIR}/${dir}` });
+    return { id: record.id, dir, path: `${TASKS_DIR}/${dir}`, task: record };
+  }
+
+  /**
+   * Bring a task's record up to date with the platform: state ({ type, name } or "COMPLETED"), run ids, start and
+   * end time, records, errors, result (what came of it, in words), output (written to output.json), summary,
+   * complete_by, options (only before it starts), note (kept in its history). A change of state is kept in the
+   * task's history; reaching a final state (COMPLETED, FAILED, CANCELLED, CRASHED) also posts a line to comms/
+   * (announce: false to skip). Returns { id, dir, path, task, changed }.
+   */
+  async updateTask(ref, patch = {}, { actor = defaultActor, via = 'folio-lib', ifMatch, announce = true } = {}) {
+    const { dir, task, etag } = await this.task(ref);
+    const { output, ...rest } = patch || {};
+    const { next, changed, stateChanged } = applyTaskUpdate(task, rest, { now: this.now(), actor, via });
+    let rec = next;
+    if (output !== undefined) {
+      const text = output === null ? null : taskOutputText(output);
+      const file = `${TASKS_DIR}/${dir}/${TASK_OUTPUT_FILE}`;
+      if (text) await this.fs.write(file, text, { contentType: 'application/json' });
+      else if (task.output) await this.fs.remove(file);
+      rec = { ...rec, updated_at: this.now() };
+      if (text) rec.output = TASK_OUTPUT_FILE;
+      else delete rec.output;
+      changed.push('output');
+    }
+    if (rec !== task) await this.fs.write(`${TASKS_DIR}/${dir}/${TASK_FILE}`, json(rec), { ifMatch: ifMatch ?? etag, contentType: 'application/json' });
+    if (announce && stateChanged && isTerminalState(rec.state)) await postMessage(this, { kind: actor?.type === 'agent' ? 'agent' : 'update', text: this.taskMessage(rec, dir, 'finished'), actor, via, task: `${TASKS_DIR}/${dir}` });
+    return { id: rec.id, dir, path: `${TASKS_DIR}/${dir}`, task: rec, changed };
+  }
+
   // ---- intake: drag and drop, paste, upload (intake.js) ----------------------------
 
   /**
@@ -657,10 +788,10 @@ export class Folio {
 
   /**
    * The folio at a glance: its manifest and readiness, the folios inside it by state, those ready to start,
-   * tags in use, repositories and connections.
+   * tags in use, repositories, connections, and its tasks (counts and the latest ten).
    */
   async overview({ statusOf } = {}) {
-    const [{ manifest }, kids] = await Promise.all([this.manifest(), this.children({ statusOf })]);
+    const [{ manifest }, kids, taskList] = await Promise.all([this.manifest(), this.children({ statusOf }), this.tasks()]);
     const counts = { ready: 0, in_progress: 0, waiting: 0, blocked: 0, draft: 0, done: 0 };
     for (const c of kids) counts[c.readiness.state] += 1;
     return {
@@ -672,6 +803,7 @@ export class Folio {
       repositories: (manifest.repositories || []).map(describeRepository),
       cc: (manifest.cc || []).map((c) => ({ ...c, audience: ccAudience(c), key: ccKey(c), integration_state: 'reference_only' })),
       connections: (manifest.connections || []).map((c) => ({ ...c, integration_state: 'reference_only' })),
+      tasks: { total: taskList.length, open: taskList.filter((t) => !t.done).length, overdue: taskList.filter((t) => t.overdue).length, recent: taskList.slice(-10) },
     };
   }
 

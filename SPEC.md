@@ -66,6 +66,7 @@ The application uses clear, stable terminology.
 | **Folio type** | Why a folio exists: a project, a task, a bug, a support request, a review... A folio may have no type. |
 | **Relationship** | A connection between folios, such as blocked by, related, or discovered from. |
 | **Execution record** | Optional fine-grained steps, actions, or agent runs undertaken to advance a folio; not a folio itself. |
+| **Task** | One run of a well-defined piece of work on an execution platform (an engine9 worker method or flow): a definite name, options and output, in a known environment, that completes or fails within a time window. Run elsewhere; the folio keeps a copy of what was asked and what came of it (5.8). |
 | **Source** | Original evidence, such as an email, a Slack discussion, a submitted form, a captured GitHub item, or a document. |
 | **Feedback form** | A defined set of questions used to solicit responses about a folio or a particular artifact. |
 | **Feedback response** | A preserved answer to a published form. |
@@ -140,6 +141,11 @@ folios/
           001/
             ...files...
 
+    tasks/                       well-defined work run elsewhere, one folder each (5.8)
+      create-database/
+        task.json                definition, environment, run ids, state, history
+        output.json              the (small) result, when kept
+
     sources/                     references and evidence that are not messages
       data/                      summaries of data files and logs (8.4.1)
       links/
@@ -172,7 +178,7 @@ The directory layout is a convention rather than a rigid empty scaffold. Only `f
 | `*.chat.json` | A captured chat thread (Slack and the like) |
 | `*.summary.md` | A summary that stands in for the messages before its date |
 
-A message file is JSON: `{ "at", "kind", "author": { "type", "id", "name"?, "on_behalf_of"?, "channel"?, "workspace"? }, "via", "text", "attachments"?: [paths], "imported"?, "ref"? }`. A message that came in over a channel from one of the folio's CCs (5.7) is credited to it: `author` is `{ "type": "person" | "channel", "channel", "id": <its address>, "name"? }`, and `ref` is the channel's own id for the message (`{ channel, id }`), so a second delivery is not stored twice. A message without `to` is for the **team**: everyone with access, and the CCs on the team list. `"to": ["email:tim@pursuant.com", …]` makes it a message **to the client**: sent to exactly those client CCs (keys as in 5.7), and seen by the team as always. Readers tag each item with its thread (`team` or `client`) and each client item with its direction (`in` from the client, `out` to them); see 5.7.1. Messages are written once and never edited, so they need no locking and never conflict with edits to `folio.json`.
+A message file is JSON: `{ "at", "kind", "author": { "type", "id", "name"?, "on_behalf_of"?, "channel"?, "workspace"? }, "via", "text", "attachments"?: [paths], "imported"?, "ref"?, "task"? }`. `task` is the folder of the task (5.8) a message is about. A message that came in over a channel from one of the folio's CCs (5.7) is credited to it: `author` is `{ "type": "person" | "channel", "channel", "id": <its address>, "name"? }`, and `ref` is the channel's own id for the message (`{ channel, id }`), so a second delivery is not stored twice. A message without `to` is for the **team**: everyone with access, and the CCs on the team list. `"to": ["email:tim@pursuant.com", …]` makes it a message **to the client**: sent to exactly those client CCs (keys as in 5.7), and seen by the team as always. Readers tag each item with its thread (`team` or `client`) and each client item with its direction (`in` from the client, `out` to them); see 5.7.1. Messages are written once and never edited, so they need no locking and never conflict with edits to `folio.json`.
 
 **Files are assets and live apart**, in `attachments/`; a message refers to them by path. Keeping the conversation in one folder of small files makes it easy to read, search, summarise and compress (older messages can be replaced by a `*.summary.md`), without visiting a folder per kind of message.
 
@@ -319,7 +325,7 @@ A folio inside a folio is a separate record, as if it sat anywhere else:
 
 - The folio around it does **not** list, search, validate or write the nested folio's files. Its own tools (and the library's `Folio`, given the nested folders or `nested: 'detect'`) see only its own record; the nested folio appears to it as a folder to open.
 - A nested folio can be shared, restricted, moved or exported on its own. Exporting the outer folio includes nested folios only if asked.
-- Folio's own directories (`comms/`, `attachments/`, `sources/`, `notes/`, `history/`, `indexes/`, `feedback/`, `artifacts/`, `decisions/`, `integrations/`, `samples/`) never hold nested folios. A `folio.json` filed under them (inside an uploaded folder, say) is just a file.
+- Folio's own directories (`comms/`, `attachments/`, `sources/`, `notes/`, `history/`, `indexes/`, `feedback/`, `artifacts/`, `decisions/`, `integrations/`, `samples/`, `tasks/`) never hold nested folios. A `folio.json` filed under them (inside an uploaded folder, say) is just a file.
 - Making a folder inside a folio into a folio moves its files out of the outer folio's view, not out of the folder tree.
 
 ## 4. Folio lifecycle and organisation
@@ -425,7 +431,7 @@ The **Ready** view lists the folios inside a folio that are ready, each with its
 
 ### 5.3 Execution details stay out of the list
 
-An individual folio might take hundreds of low-level actions: reading logs, editing files, running checks, asking agents to investigate. Those are not folios. They go in the folio's `comms/` as agent reports and updates (`*.agent.json`, `*.update.json`), in `notes/`, or in referenced external logs, so the board stays a list of meaningful outcomes.
+An individual folio might take hundreds of low-level actions: reading logs, editing files, running checks, asking agents to investigate. Those are not folios. They go in the folio's `comms/` as agent reports and updates (`*.agent.json`, `*.update.json`), in `notes/`, or in referenced external logs, so the board stays a list of meaningful outcomes. Well-defined runs on an execution platform are recorded as **tasks** (5.8), not as folios.
 
 ### 5.4 Change history
 
@@ -483,6 +489,77 @@ The common case: a request comes in from a client; someone acknowledges it at on
 - **Timing** (`clientThread(items)`, `folio.clientThread()`): `waiting` is `us` when the client's latest message is unanswered (since the first unanswered one) and `client` when the last word was ours (since then); plus `first_in`, `first_reply` (first response time), `last_in`, `last_out`, `unanswered`, `sent` and `received`. Hosts show it on the folio and its card, against a reply target they configure; a folio that is done needs no reply.
 - **Closing.** Sending the summary to the client and setting the status are one step in a host's composer ("Send and mark Done").
 - CC addresses are client and account contacts (3.7(3)); they are not secrets, and no credential or token for a channel belongs in the list.
+
+### 5.8 Tasks: well-defined work run elsewhere
+
+Some of the work in a folio is done by **tasks**: standard, well-defined runs on an execution platform, started by an agent or a person while working the folio. Folio's task is **engine9's task**, copied rather than reinvented (the engine9 Task API and its skills, `engine9-ai/skills` `e9-tasks-api` and `e9-dev-tasks`, are the authority for what a task is). "Task" is used loosely in many tools; here it means only this.
+
+A task is not open-ended work ("get the groceries", "research this"); that is a folio, perhaps of type `task`. A task has:
+
+- **A definite name**: one worker method (`path` + `method`, e.g. `@engine9/plugins/e9workers:EchoWorker` + `echo`; engine9's on-demand task) **or** a predefined flow (`flow_id`, its slug or a remote dataflow id, with optional per-step overrides `tasks: [{ task_key, options }]`). Never both.
+- **Options**: the input it runs with.
+- **An environment** where it runs: a platform and an account, written `engine9/acme`, or `{ platform, account_id, base_url?, connection? }`. `connection` names a `connections` entry in `folio.json` (`{ "type": "engine9", "alias": "acme", "account_id": "acme", "base_url": "https://data.engine9.ai", "purpose": … }`), which is how a folio tells an agent where its tasks run. No credentials, ever (3.7).
+- **A state**, in the platform's terms: `PENDING`, `SCHEDULED`, `RUNNING`, `PAUSED`, then one of `COMPLETED`, `FAILED`, `CANCELLED`, `CRASHED`.
+- **A time window**: `complete_by` (or `within_minutes` when it is recorded), and optionally `start_after`. A task not finished by then is **overdue**, worked out when read, never stored.
+- **An output**: the worker's JSON result, a records count, errors, and `result`, a sentence on what came of it.
+
+**The platform drives; the folio remembers.** The definition, the run, its logs and checkpoints live on the platform. A folio is a secondary record of initiation and tracking: it keeps what was asked, where, by whom, the ids to find the run again (`run: { flow_run_id, task_run_ids, url?, log_link? }`), its state over time and a small copy of the result, so later agents and people can see what was done without access to the platform. Live state (allowed actions, checkpoints, logs) is never copied in; it is looked up there with the run ids. A typical sequence:
+
+1. An agent opens the folio and reads its context: `README.md`, `AGENTS.md`, `connections`, and `tasks/` for tasks already recorded (so the same work is not started twice).
+2. It connects to the platform (engine9/acme), schedules the task there, and records it in the folio with its definition, options and run ids (`folio.addTask()`; MCP `add_task`).
+3. It waits for the task, polling the platform.
+4. It brings the record up to date (`folio.updateTask()`; MCP `update_task`): state, records, result, output. Then it carries on with the folio's work.
+
+A task may be the whole of a folio's work ("Spin up client X" is a folio; Create database and Install plugins are its tasks), its context (a sample run that shows what the data looks like), or one step among many. A folio is not completed automatically when its tasks are; people (or agents) set the folio's status (4.3).
+
+**On disk**, each task has its own folder in `tasks/`, named after its title, so tasks can later become something richer (even folios) without moving:
+
+```text
+tasks/
+  create-database/
+    task.json
+    output.json        optional: the worker's JSON output
+```
+
+```json
+{
+  "format": "folio-task",
+  "format_revision": 1,
+  "id": "tsk-jzz4ve",
+  "title": "Create database",
+  "environment": { "platform": "engine9", "account_id": "acme" },
+  "kind": "on_demand",
+  "path": "@engine9/plugins/e9workers:DatabaseWorker",
+  "method": "createDatabase",
+  "options": { "region": "us-east" },
+  "complete_by": "2026-11-10T14:35:00.000Z",
+  "run": { "flow_run_id": "0196f1d0-…", "task_run_ids": ["0196f1d1-…"] },
+  "state": { "type": "COMPLETED" },
+  "start_time": "2026-11-10T14:06:00.000Z",
+  "end_time": "2026-11-10T14:12:00.000Z",
+  "records": 1,
+  "result": "Database acme_main created in us-east.",
+  "output": "output.json",
+  "created_at": "2026-11-10T14:05:00.000Z",
+  "updated_at": "2026-11-10T14:12:00.000Z",
+  "created_by": { "type": "agent", "id": "claude", "on_behalf_of": "sam@example.com" },
+  "history": [
+    { "at": "2026-11-10T14:05:00.000Z", "state": "PENDING", "note": "recorded" },
+    { "at": "2026-11-10T14:06:00.000Z", "state": "RUNNING" },
+    { "at": "2026-11-10T14:12:00.000Z", "state": "COMPLETED" }
+  ]
+}
+```
+
+Other optional fields: `summary`, `description`, `tracking_code` (engine9's flow-run tag), `start_after`, `definition_url` (where the definition is documented), `errors: [{ level, message, ts }]`. Rules:
+
+1. **The definition is fixed once recorded.** Updates change what the platform reports (state, run ids, times, records, errors, result, output, summary, `complete_by`); `options` may change only before the task starts (`PENDING` or `PAUSED`), as on engine9. A different definition is a new task. A retried run moving back to `RUNNING` is a state change like any other.
+2. **Every change of state is kept** in the task's `history` (who, when, via what, an optional note), with the latest 100 entries.
+3. **The conversation says so.** Recording a task and its reaching a final state each post one line to `comms/` (an agent's report, or an update when a person does it) that names the task and its folder (`"task": "tasks/create-database"` on the message), so the timeline shows the work without opening `tasks/`. Intermediate states are kept only in the task.
+4. **Output is small.** `output.json` is at most 64 KB; samples and aggregates, never result sets (3.7). Card numbers and credentials are removed from options, output, errors and text. Bigger results stay on the platform.
+5. **Listing** (`folio.tasks()`, MCP `list_tasks`) gives each task's state, environment, target, run ids, window and whether it is overdue; the overview counts total, open and overdue tasks. `validate` reports a `task.json` that is not a readable task.
+
+Whether a task should itself be a folio (with its own conversation and sharing) is left open (17); the folder per task keeps that possible.
 
 ---
 
@@ -675,13 +752,15 @@ The primary interface is a human-accessible workspace. People create folios, cho
 
 Folio should expose a standard MCP interface through which an authorised external agent can discover accessible folios, read files, understand folios inside folios and their relationships, inspect evidence, and make permitted updates. Agent access must be scoped and revocable.
 
-The expected capabilities include discovering folios, reading a folio overview, browsing files, searching content, listing ready folios, reading change histories, creating or editing folios, linking evidence, reviewing feedback and listing artifacts. The interface should reflect the same truth as the human interface, with no separate agent-only work store.
+The expected capabilities include discovering folios, reading a folio overview, browsing files, searching content, listing ready folios, reading change histories, creating or editing folios, recording and updating tasks (5.8), linking evidence, reviewing feedback and listing artifacts. The interface should reflect the same truth as the human interface, with no separate agent-only work store.
 
 Read access should be the default; write access should be explicitly approved. Connection to an agent is not proof of permission to access every folio.
 
 ### 10.3 Multiple upstream MCP connections
 
 A folio may describe several named external MCP connections, such as customer documentation, a reporting system, a support platform, or a database. The folder contains intelligible non-secret aliases and purposes. The hosted service determines which actual connection each alias refers to for a particular account and user.
+
+A connection of type `engine9` (or another execution platform) says where the folio's tasks run (5.8). Folio does not run tasks itself: an agent uses its own connection to the platform and records what it did in the folio.
 
 Connections may be read-only, capable of limited changes, or require human confirmation. Exposing a connection through Folio should not silently grant a broad set of powerful tools to every agent that can read the folder. Outbound access is a separate permission decision from incoming agent access.
 
@@ -810,7 +889,7 @@ A folio opens as itself, like a case in a help desk or a task in Asana, not as a
 - Title, state (with the reason when it is blocked, waiting or a draft) and Mark Done.
 - Description and files (attachments and notes).
 - The whole conversation from `comms/` (emails, comments, updates, agents' reports) in time order, with a composer that takes text and files.
-- A side column: the folios inside it (sub-folios), with a one-line add; details: status, type, owner, target date, tags, what it waits on, **CC** in its two lists, **Team** and **Client** (people and channels, each showing whether this deployment delivers to it, and movable between the lists), its email address, repositories, recent changes and sharing.
+- A side column: the folios inside it (sub-folios), with a one-line add; details: status, type, owner, target date, tags, what it waits on, **CC** in its two lists, **Team** and **Client** (people and channels, each showing whether this deployment delivers to it, and movable between the lists), its email address, repositories, **tasks** (each with its state, environment and whether it is overdue; 5.8), recent changes and sharing.
 
 Everything is edited in place, and anything dropped on the page is added to the folio. Folios inside a folio are secondary: they show within it, not alongside it in lists of folios or on its folder's board (its card counts them). For a small folio this page should feel simple rather than empty; for a larger one it should offer a concise route to the detail without becoming a dashboard requiring constant maintenance.
 
@@ -917,6 +996,7 @@ The following choices are intentionally left flexible, provided the foundational
 - **Which artifact types receive in-browser previews.** Raw files always remain available; safe rendering is a separate capability.
 - **What search experience is offered.** Search can improve considerably without becoming authoritative storage.
 - **Whether folios later support templates or reusable practices.** Templates should produce ordinary folio folders, not introduce invisible state or mandatory infrastructure.
+- **Whether tasks become folios.** Each task has its own folder in `tasks/` (5.8) so it could later gain a conversation, sharing or folios of its own without moving.
 - **Whether folios later incorporate checklists.** Checklists, if introduced, should remain a lower-level concept subordinate to the folio's outcome.
 
 These are areas for product evolution, not reasons to weaken the core folder model.
@@ -942,6 +1022,7 @@ A successful folio stands on its own. The hosted application provides a pleasant
 - A browser workspace laid out like a Finder window: folio list, the folio's folder, the folios inside it as a board or list (with readiness, type and tags), Quick Look, repositories, files, sharing.
 - Drag and drop, paste and upload into a folio, filed by the library's routing rule (8.6): text saved as Markdown, HTML or plain text by detection, with the type chosen before or changed after; Asana, Trello and Folio-list exports imported as folios (4.4.1).
 - Email forwarding to a folio's intake address (8.1).
+- Tasks (5.8): engine9-style task records in `tasks/`, kept by agents over MCP (`add_task`, `update_task`, `list_tasks`, `get_task`) and the library, shown on the folio's page.
 
 ### Deferred, and what will be needed
 

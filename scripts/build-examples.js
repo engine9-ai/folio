@@ -149,4 +149,48 @@ async function fresh(name) {
   await fs.write('CONTEXT.md', '# Context\n\nDesign is in review (prototype v2 awaiting the customer). Launch readiness waits on design and content. One mobile bug from the first review is a folio inside the design folio, and design waits on it.\n');
 }
 
+// ---------------------------------------------------------------------------
+// 3. Tasks run elsewhere (SPEC 5.8): a folio whose work is engine9 tasks, recorded by an agent.
+// ---------------------------------------------------------------------------
+{
+  const { fs } = await fresh('client-onboarding');
+  let t = Date.parse('2026-11-10T14:00:00Z');
+  const now = () => new Date(t).toISOString();
+  const tick = (minutes) => (t += minutes * 60_000);
+  const claude = { type: 'agent', id: 'claude', on_behalf_of: 'sam@example.com' };
+  const opts = { actor: claude, via: 'mcp' };
+  await Folio.init(fs, {
+    id: 'fol-acmeup',
+    title: 'Spin up client Acme',
+    type: 'project',
+    status: 'active',
+    summary: 'Set up Acme on engine9: database, plugins, first sync.',
+    outcome: 'Acme has a working engine9 account with its plugins installed and a first nightly sync completed.',
+    owner: 'sam@example.com',
+    tags: ['onboarding'],
+    readme: "# Spin up client Acme\n\nSet up Acme's engine9 account so their team can start using it on Monday.\n\nThe work is done by tasks run on **engine9/acme** (`https://data.engine9.ai`, account `acme`). Each task is recorded in `tasks/`; its logs stay on engine9 and are found again with the run ids in its `task.json`.\n",
+    now,
+    actor: sam,
+  });
+  const folio = await Folio.open(fs, { now });
+  await folio.updateManifest({ connections: [{ type: 'engine9', alias: 'acme', account_id: 'acme', base_url: 'https://data.engine9.ai', purpose: "Where this folio's tasks run" }] }, { actor: sam });
+  await fs.write('AGENTS.md', '# Working on this folio\n\n- Tasks run on engine9/acme (connection `acme` in folio.json). Connect to the engine9 MCP server or Task API for that account; this folio holds no credentials.\n- Before starting a task, check `tasks/` for one already recorded: do not start the same work twice.\n- Record each task as you initiate it (definition, options, flow_run_id and task_run_ids), poll engine9 until it finishes, then update the record with its state, records count and a short result. Keep only small output here.\n- When every task is completed, post an update and move the folio to review.\n');
+  tick(5);
+  const db = await folio.addTask({
+    id: 'tsk-dbacme', title: 'Create database', environment: 'engine9/acme',
+    path: '@engine9/plugins/e9workers:DatabaseWorker', method: 'createDatabase', options: { region: 'us-east' }, within_minutes: 30,
+    run: { flow_run_id: '0196f1d0-87cf-7b6f-b9a0-8f5d2d6c2f9e', task_run_ids: ['0196f1d1-2c55-7d89-9c24-6fe4f7fd93ea'] },
+  }, opts);
+  tick(1);
+  await folio.updateTask(db.id, { state: { type: 'RUNNING', name: 'Running' } }, opts);
+  tick(6);
+  await folio.updateTask(db.id, { state: 'COMPLETED', records: 1, result: 'Database acme_main created in us-east.', output: { database: 'acme_main', region: 'us-east', tables: 42 } }, opts);
+  tick(2);
+  await folio.addTask({
+    id: 'tsk-plgacme', title: 'Install plugins', environment: 'engine9/acme', flow_id: 'install-standard-plugins',
+    options: { plugins: ['stripe', 'mailchimp'] }, within_minutes: 60, state: { type: 'RUNNING', name: 'Running' },
+    run: { flow_run_id: '0196f1e2-11aa-7c3d-8e5f-0a1b2c3d4e5f', task_run_ids: ['0196f1e2-22bb-7d4e-9f60-1b2c3d4e5f60', '0196f1e2-33cc-7e5f-a071-2c3d4e5f6071'] },
+  }, opts);
+}
+
 console.log('Examples rebuilt in', root);

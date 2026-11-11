@@ -2,6 +2,7 @@ import { validateManifest } from './manifest.js';
 
 import { findCredentials, prohibitedIn } from './privacy.js';
 import { KEEP_LIMITS } from './data.js';
+import { validateTaskRecord } from './tasks.js';
 
 const TEXT_EXT = /\.(md|json|txt|eml|csv|tsv|jsonl|ndjson|log|html|css|js|xml|yaml|yml|ini|conf|env)$/i;
 const DATA_EXT = /\.(csv|tsv|jsonl|ndjson|log|sql|xlsx?|parquet)$/i;
@@ -40,6 +41,15 @@ export async function validateFolio(fs) {
       if (typeof m.text !== 'string' || Number.isNaN(Date.parse(m.at))) add('warning', 'message_shape', path, 'A message needs "at" (a timestamp) and "text"');
     } catch (e) {
       add('error', 'message_json', path, `Not valid JSON: ${e.message}`);
+    }
+  }
+
+  // Tasks (tasks/<dir>/task.json) must be readable records of work run elsewhere.
+  for (const path of files.filter((f) => /^tasks\/[^/]+\/task\.json$/.test(f))) {
+    try {
+      for (const p of validateTaskRecord(JSON.parse((await fs.read(path)).text))) add(p.level, p.code, path, p.message);
+    } catch (e) {
+      add('error', 'task_json', path, `Not valid JSON: ${e.message}`);
     }
   }
 

@@ -26,6 +26,9 @@ node bin/folio.js import ./my-folio asana-export.json     # Asana / Trello / { f
 node bin/folio.js retype ./my-folio notes/2026-11-09-kickoff.txt markdown
 node bin/folio.js ready ./my-folio        # what could someone start now?
 node bin/folio.js validate ./my-folio     # broken references, loops, secrets, unattested edits
+node bin/folio.js task add ./my-folio --env engine9/acme --path @engine9/plugins/e9workers:EchoWorker --method echo --within 30
+node bin/folio.js task set ./my-folio echo-echoworker --state COMPLETED --records 1   # bring the record up to date
+node bin/folio.js task list ./my-folio    # tasks run elsewhere, with state and whether they are overdue
 ```
 
 ## Library
@@ -61,6 +64,13 @@ await folio.clientThread();  // { waiting: 'us' | 'client', since, first_reply, 
 await folio.receive({ channel: 'slack', address: '#acme-support' }, 'On it', { ref: 'ts-1' }); // a reply, credited to the CC
 await folio.emails();      // filed emails: headers, readable body text
 
+// Tasks: well-defined work run on a platform such as engine9 (SPEC 5.8); the folio keeps a copy.
+const task = await folio.addTask({ title: 'Create database', environment: 'engine9/acme',
+  path: '@engine9/plugins/e9workers:EchoWorker', method: 'echo', options: { message: 'hi' }, within_minutes: 30,
+  run: { flow_run_id: '0196f1d0-…', task_run_ids: ['0196f1d1-…'] } }, { actor });   // tasks/create-database/task.json
+await folio.updateTask(task.id, { state: 'COMPLETED', records: 1, result: 'Created', output: { ok: true } }, { actor });
+await folio.tasks({ open: true });   // [{ id, title, environment, target, state, overdue, run, ... }]
+
 // Pasted text: Markdown, HTML or plain text by detection; `as` overrides; the type can be changed after.
 folio.choices({ text: pasted });                        // { kind, as: 'markdown', label, where, choices: [...] }
 const [note] = await folio.add({ text: pasted }, { actor });                  // notes/2026-11-09-kickoff.md
@@ -85,6 +95,7 @@ Behaviours worth knowing:
 - **Imports.** `detectImport(json)` recognises Asana, Trello and `{ folios }` exports; `folio.import()` creates folios inside the folio in one pass (ids claimed first, so dependencies can point at folios not yet written; subtasks go inside their task), records `external: { source, id, url }` on each, and writes a report to `history/imports/`.
 - **Folders all the way down.** A folder with a `folio.json` is a folio; folios can hold folios. `Folio.open(fs, { nested })` takes the nested folios' folders (or `'detect'`) and hides them through `ExcludingFs`; `nestedFolioDirs(fs)` finds them; `folio.child(dir)` opens one through `SubFs`, and `createChild` makes one (and calls the host's `onChild`). Folio's own directories (`RESERVED_DIRS`) never hold nested folios.
 - **CC is per folio** (SPEC 5.7): people and channels (email, Slack, SMS, others) in `folio.json` `cc`, each on the **team** list (hears everything) or the **client** list (hears only messages whose `to` names them). `comms()` tags every item with its thread (`team`/`client`, `in`/`out`) and `clientThread()` says who is waiting on whom. The library never sends anything; delivery is a hosting add-on. Hosts learn of new messages (with their `to`) through the `onMessage` option.
+- **Tasks copy engine9's model** (SPEC 5.8): `path` + `method` or `flow_id`, `options`, an `environment` (`engine9/acme`), engine9 state types (`TASK_STATES`), run ids, a `complete_by` window (`overdue` is computed). The definition is fixed once recorded; `updateTask` takes what the platform reports, keeps each state change in the task's `history`, and posts to `comms/` when a task is recorded and when it finishes. Output over 64 KB is refused. The library never runs a task.
 - **No permissions in a folio.** Access rules belong to the hosting service.
 - `NodeFs` overwrites are check-then-write; protect against other processes writing the same folder yourself.
 

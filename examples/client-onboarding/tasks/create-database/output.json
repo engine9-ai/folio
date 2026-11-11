@@ -1,0 +1,5 @@
+{
+  "database": "acme_main",
+  "region": "us-east",
+  "tables": 42
+}

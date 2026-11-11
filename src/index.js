@@ -4,6 +4,23 @@ export { INTAKE_AS, INTAKE_KINDS, classify, intakeChoices, repositoryFromUrl, sa
 export { TEXT_FORMATS, detectTextFormat, htmlToText, textFormatOf, titleOfText } from './text-format.js';
 export { IMPORTERS, IMPORT_FORMATS, MAX_IMPORT_ITEMS, detectImport, parseJsonText, planImport } from './import.js';
 export { CC_AUDIENCES, CC_AUDIENCE_LABELS, CC_CHANNELS, CC_CHANNEL_LABELS, CC_KINDS, MAX_CC, authorChannel, ccAudience, ccAuthor, ccChannelLabel, ccKey, findCc, normalizeCc, parseCc, validateCc } from './cc.js';
+export {
+  MAX_TASK_OUTPUT,
+  TASKS_DIR,
+  TASK_KINDS,
+  TASK_STATES,
+  TASK_STATE_LABELS,
+  TASK_UPDATABLE,
+  TERMINAL_TASK_STATES,
+  environmentLabel,
+  isOverdue,
+  isTaskId,
+  isTerminalState,
+  newTaskId,
+  parseEnvironment,
+  taskStateLabel,
+  taskTarget,
+} from './tasks.js';
 export { COMMS_DIR, COMMS_KINDS, MESSAGE_KINDS, clientThread, commsKindOf, isEmailPath } from './comms.js';
 export { ExcludingFs, RESERVED_DIRS, canHoldFolio, nestedFolioDirs } from './nested.js';
 export { decodeEncodedWords, emailAddress, emailAttachments, looksLikeEmail, parseEmail, parseEmailHeaders } from './email.js';
