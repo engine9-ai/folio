@@ -1,11 +1,17 @@
 /**
- * Work is folios inside folios: any folio can have a type (a task, a bug, a project...),
+ * Work is folios inside folios: any folio can have a type (a bug, a request, a project...),
  * tags, an owner, a target date, and relationships to other folios. Readiness ("can this be started?")
  * is worked out from a folio's status and the folios it is blocked by.
  */
 
+/**
+ * "task" is deliberately not a folio type: in Folio a task is only a run on an execution platform (tasks.js,
+ * SPEC 5.8). Setting type "task" is refused; a folio.json that has it is warned about.
+ */
+export const RESERVED_TYPES = Object.freeze(['task', 'tasks']);
+export const RESERVED_TYPE_MESSAGE = '"task" is not a folio type: in Folio a task is a run on an execution platform (SPEC 5.8). Work to track is a folio, with another type (ticket, request, bug...) or none.';
 /** Kinds of work a folio can be. A folio may use another lowercase type of its own. */
-export const FOLIO_TYPES = ['project', 'task', 'ticket', 'request', 'support', 'bug', 'feature', 'review', 'investigation', 'epic'];
+export const FOLIO_TYPES = ['project', 'ticket', 'request', 'support', 'bug', 'feature', 'review', 'investigation', 'epic'];
 /** Links between folios, stored on the folio they start from. Containment (a parent) is the folder itself. */
 export const RELATIONSHIP_TYPES = ['blocked_by', 'related', 'discovered_from', 'duplicate_of', 'supersedes'];
 /** Statuses that mean the work is over: a folio blocked only by these is not blocked. */

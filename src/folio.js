@@ -1,7 +1,7 @@
 import { ConflictError, NotFoundError, ValidationError } from './errors.js';
 import { FOLIO_STATUS_PATTERN, createManifest, newFolioId, validateManifest } from './manifest.js';
 import { addRepositoryTo, describeRepository, removeRepositoryFrom, repositoryKey } from './repositories.js';
-import { RELATIONSHIP_TYPES, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
+import { RELATIONSHIP_TYPES, RESERVED_TYPES, RESERVED_TYPE_MESSAGE, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
 import { validateFolio } from './validate.js';
 import { addItem, classify, createUnique, intakeChoices, slugify, writeIntakeRecord } from './intake.js';
 import { parseEmail } from './email.js';
@@ -110,6 +110,7 @@ export class Folio {
   /** Create a minimal folio: folio.json + README.md. Fails if one already exists here. */
   static async init(fs, { title, summary, status, id, tags, readme, description, now = () => new Date().toISOString(), actor = defaultActor, via = 'folio-lib', ...fields } = {}) {
     if (!title || !String(title).trim()) throw new ValidationError('A folio needs a title');
+    if (RESERVED_TYPES.includes(String(fields.type || '').trim().toLowerCase())) throw new ValidationError(RESERVED_TYPE_MESSAGE);
     const clean = (v) => (typeof v === 'string' ? scrubText(v).text.trim() || undefined : v);
     summary = clean(summary);
     description = clean(description);
@@ -179,6 +180,7 @@ export class Folio {
       else if (typeof v === 'string') clean[k] = k === 'title' ? v.trim() : scrubText(v).text.trim() || undefined;
       else clean[k] = v ?? undefined;
     }
+    if (clean.type && RESERVED_TYPES.includes(clean.type)) throw new ValidationError(RESERVED_TYPE_MESSAGE);
     if (clean.status !== undefined && !FOLIO_STATUS_PATTERN.test(clean.status)) throw new ValidationError(`“${patch.status}” is not a status`);
     if ('title' in clean && !clean.title) throw new ValidationError('A folio needs a title');
     return this.updateManifest(clean, { actor, via, ifMatch });
@@ -299,7 +301,7 @@ export class Folio {
   }
 
   /**
-   * Create a folio inside this one (a sub-folio): a task, a bug, a sub-project. It gets its own folder (named after the
+   * Create a folio inside this one (a sub-folio): a request, a bug, a sub-project. It gets its own folder (named after the
    * title) with folio.json and README.md; `description` becomes the README. Returns { id, dir, manifest, folio }.
    */
   async createChild(input = {}, { actor = defaultActor, via = 'folio-lib', inDir = '' } = {}) {
@@ -633,7 +635,7 @@ export class Folio {
 
   /**
    * Turn an export from another tool (Asana, Trello, or { folios: [...] }) into folios inside this one: each
-   * task a folio (type from the export, task by default), subtasks inside their task's folio, dependencies as
+   * item a folio (type from the export, if any), sub-items inside their parent's folio, dependencies as
    * blocked_by, comments in each folio's comms/. Folios already imported (same `external` source and id) are
    * skipped, so an export can be imported again. A record is kept in history/imports/.
    * Returns { format, label, created: [{ id, dir }], duplicates, path, summary }. With dryRun: { would_create, duplicates }.
@@ -671,7 +673,7 @@ export class Folio {
       rels.set(me, list);
     }
 
-    // Parents before children: a subtask goes inside its task's folder.
+    // Parents before children: a sub-item goes inside its parent's folder.
     const created = [];
     const failed = [];
     let pending = [...fresh];

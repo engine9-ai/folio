@@ -6,10 +6,10 @@ import { basename, join, relative } from 'node:path';
 
 const USAGE = `folio: work with folio folders
 
-  Everything is a folio: a folder with a folio.json. A task, a bug or a sub-project is a folio inside a folio (a sub-folio).
+  Everything is a folio: a folder with a folio.json. A request, a bug or a sub-project is a folio inside a folio (a sub-folio).
 
   folio init <dir> --title "Title" [--summary "..."] [--type project] [--status active]
-  folio new <dir> --title "..." [--type task] [--status backlog] [--tags "a, b"] [--owner ...] [--description "..."]
+  folio new <dir> --title "..." [--type request] [--status backlog] [--tags "a, b"] [--owner ...] [--description "..."]
       creates a folio inside <dir> (in its own folder, named after the title)
   folio list <dir>                                     the folios inside, with status and readiness
   folio set <dir> --status active [--owner ...] [--tags "a, b"] [--type ...] [--title ...] [--target-date YYYY-MM-DD]

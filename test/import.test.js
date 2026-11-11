@@ -54,7 +54,7 @@ const ASANA = {
 };
 
 test('detectImport recognises Asana, Trello and Folio lists, and nothing else', () => {
-  assert.deepEqual(detectImport(ASANA), { format: 'asana', label: 'Asana', items: 4, subtasks: 2, sections: 1, project: 'Website refresh' });
+  assert.deepEqual(detectImport(ASANA), { format: 'asana', label: 'Asana', items: 4, sub_items: 2, sections: 1, project: 'Website refresh' });
   assert.equal(detectImport(ASANA.data).format, 'asana'); // a bare array of tasks
   assert.equal(detectImport({ data: ASANA.data[1] }).format, 'asana'); // one task from the API
   assert.equal(detectImport({ cards: [{ id: 'c1', name: 'A', idList: 'l1' }], lists: [{ id: 'l1', name: 'To do' }] }).format, 'trello');
@@ -67,7 +67,7 @@ test('detectImport recognises Asana, Trello and Folio lists, and nothing else', 
 
 const kids = async (fs) => (await (await Folio.open(fs, { nested: 'detect' })).descendants());
 
-test('an Asana export becomes folios: subtasks inside their task, sections, tags, dependencies, comments', async () => {
+test('an Asana export becomes folios: sub-items inside their parent, sections, tags, dependencies, comments', async () => {
   const { folio, fs } = await make();
   const r = await folio.import(JSON.stringify(ASANA), { actor, via: 'test', name: 'asana.json' });
   assert.equal(r.format, 'asana');
@@ -78,15 +78,15 @@ test('an Asana export becomes folios: subtasks inside their task, sections, tags
   const page = by('Redesign donate page');
   assert.equal(page.dir, 'redesign-donate-page');
   const m = page.manifest;
-  assert.deepEqual([m.type, m.status, m.priority, m.owner, m.target_date], ['task', 'active', undefined, 'Riley Chen', '2026-12-01']);
+  assert.deepEqual([m.type, m.status, m.priority, m.owner, m.target_date], [undefined, 'active', undefined, 'Riley Chen', '2026-12-01']);
   assert.deepEqual(m.tags, ['In Progress', 'Design']);
   assert.deepEqual(m.external, { source: 'asana', id: '1201', url: 'https://app.asana.com/0/42/1201', created_at: '2026-10-01T10:00:00.000Z' });
-  assert.deepEqual(m.links, [{ type: 'url', label: 'Asana task', url: 'https://app.asana.com/0/42/1201' }]);
+  assert.deepEqual(m.links, [{ type: 'url', label: 'Asana', url: 'https://app.asana.com/0/42/1201' }]);
   const approve = by('Approve new brand colours').manifest;
   assert.deepEqual([approve.type, approve.priority, approve.tags], ['review', undefined, undefined]); // "Untitled section" is not a tag
   assert.deepEqual(m.relationships, [{ type: 'blocked_by', target: approve.id }]);
   const hero = by('Pick hero image');
-  assert.equal(hero.dir, 'redesign-donate-page/pick-hero-image'); // inside its task
+  assert.equal(hero.dir, 'redesign-donate-page/pick-hero-image'); // inside its parent
   assert.deepEqual([hero.manifest.status, hero.manifest.resolution], ['completed', 'completed']);
   // README: notes scrubbed of card numbers, plus where it came from.
   const desc = (await fs.read(`${page.dir}/README.md`)).text;
@@ -103,7 +103,7 @@ test('an Asana export becomes folios: subtasks inside their task, sections, tags
   // The outer folio sees its folios and their readiness; a record of the import; everything valid.
   const outer = await Folio.open(fs, { nested: 'detect' });
   const ov = await outer.overview();
-  assert.equal(ov.folios.total, 2); // direct children; subtasks live inside their task
+  assert.equal(ov.folios.total, 2); // direct children; sub-items live inside their parent
   assert.deepEqual(ov.ready.map((x) => x.title), ['Approve new brand colours']);
   const report = JSON.parse((await fs.read(r.path)).text);
   assert.equal(report.created.length, 4);
@@ -120,7 +120,7 @@ test('importing the same export again skips what is already there', async () => 
   assert.deepEqual(again.created.map((c) => c.dir), ['redesign-donate-page/new-task']);
   assert.equal(again.duplicates, 4);
   assert.equal((await kids(fs)).length, 5);
-  assert.deepEqual(await folio.import(ASANA, { dryRun: true }), { format: 'asana', label: 'Asana', items: 4, subtasks: 2, sections: 1, project: 'Website refresh', would_create: 0, duplicates: 4 });
+  assert.deepEqual(await folio.import(ASANA, { dryRun: true }), { format: 'asana', label: 'Asana', items: 4, sub_items: 2, sections: 1, project: 'Website refresh', would_create: 0, duplicates: 4 });
 });
 
 test('dependency loops are dropped, not imported', async () => {

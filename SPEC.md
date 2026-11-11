@@ -51,7 +51,7 @@ A folio is not a chat transcript, a database row, an AI-agent session, or a GitH
 
 ### 1.3 What Folio is not
 
-Folio is not a full CRM, shared email inbox, issue tracker for every engineering task, general-purpose web host, source-code repository, or native AI chat application. It should integrate with specialised systems without duplicating them unnecessarily.
+Folio is not a full CRM, shared email inbox, issue tracker for every engineering change, general-purpose web host, source-code repository, or native AI chat application. It should integrate with specialised systems without duplicating them unnecessarily.
 
 ---
 
@@ -63,7 +63,7 @@ The application uses clear, stable terminology.
 |---|---|
 | **Account** | An organisation or working group whose members may access one or more folios. |
 | **Folio** | One self-contained folder representing a bounded body of work. |
-| **Folio type** | Why a folio exists: a project, a task, a bug, a support request, a review... A folio may have no type. |
+| **Folio type** | Why a folio exists: a project, a request, a bug, a support request, a review... A folio may have no type. `task` is not a folio type (5.8). |
 | **Relationship** | A connection between folios, such as blocked by, related, or discovered from. |
 | **Execution record** | Optional fine-grained steps, actions, or agent runs undertaken to advance a folio; not a folio itself. |
 | **Task** | One run of a well-defined piece of work on an execution platform (an engine9 worker method or flow): a definite name, options and output, in a known environment, that completes or fails within a time window. Run elsewhere; the folio keeps a copy of what was asked and what came of it (5.8). |
@@ -371,7 +371,7 @@ An export from another tool becomes **folios inside the folio** it is added to. 
 
 | Format | Recognised by | Becomes |
 |---|---|---|
-| Asana | Asana's project JSON export or API task lists: `{ "data": [task, ...] }`, `{ "data": task }` or `[task, ...]`, where tasks have `gid` and `name` and Asana's task fields | One folio (type `task`) per task. Subtasks go inside their task's folio, `dependencies` become `blocked_by`, sections and tags become tags, a "Type" field the type, completed tasks are `completed`, a section like "In progress" or "Waiting" sets the status, `due_on` the target date, the assignee the owner, `notes` (or `html_notes`) the README with the other custom fields (a "Priority" field included, as text) and the Asana link below it, and comments in `stories` the folio's `comms/` |
+| Asana | Asana's project JSON export or API lists: `{ "data": [item, ...] }`, `{ "data": item }` or `[item, ...]`, where items have `gid` and `name` and Asana's fields (Asana calls them tasks) | One folio per item, with no type unless a "Type" field gives one. Sub-items go inside their parent's folio, `dependencies` become `blocked_by`, sections and tags become tags, a "Type" field the type, completed items are `completed`, a section like "In progress" or "Waiting" sets the status, `due_on` the target date, the assignee the owner, `notes` (or `html_notes`) the README with the other custom fields (a "Priority" field included, as text) and the Asana link below it, and comments in `stories` the folio's `comms/` |
 | Trello | A board export: `{ cards, lists, labels, actions }` | One folio per card: the list and labels become tags, a "Done" list completes it, an archived card is archived, comments go to `comms/` |
 | Folio list | `{ "folios": [{ id, title, description, type, status, tags, owner, target_date, parent, blocked_by, comments }] }` | One folio each; `parent` and `blocked_by` refer to other entries by `id` |
 
@@ -383,7 +383,7 @@ An export from another tool becomes **folios inside the folio** it is added to. 
 
 ## 5. Folios inside folios: the unit of work
 
-There is no separate work-item object. **A piece of work is a folio**, and a folio's work is broken down into **folios inside it** (3.8). A bug report, a support request, a feature, a review, a whole project: each is a folder with a `folio.json`, its own `comms/`, `attachments/` and history, and its own email address and sharing. A piece of the work is a **sub-folio**, with a `type` such as `task`, `bug` or `support`, or none. A small folio may hold no folios at all; a substantial one holds a few, and those may hold their own.
+There is no separate work-item object. **A piece of work is a folio**, and a folio's work is broken down into **folios inside it** (3.8). A bug report, a support request, a feature, a review, a whole project: each is a folder with a `folio.json`, its own `comms/`, `attachments/` and history, and its own email address and sharing. A piece of the work is a **sub-folio**, with a `type` such as `request`, `bug` or `support`, or none. A small folio may hold no folios at all; a substantial one holds a few, and those may hold their own.
 
 ### 5.1 What every folio carries
 
@@ -392,7 +392,7 @@ The fields that matter for tracking work all live in `folio.json`:
 | Field | Meaning |
 |---|---|
 | `id`, `title`, `summary` | Identity and what it is. The folder name follows the title and may change; the id does not. |
-| `type` | Why it exists. Suggested: `project`, `task`, `ticket`, `request`, `support`, `bug`, `feature`, `review`, `investigation`, `epic`. Others are allowed (a lowercase word; validation warns). |
+| `type` | Why it exists. Suggested: `project`, `ticket`, `request`, `support`, `bug`, `feature`, `review`, `investigation`, `epic`. Others are allowed (a lowercase word; validation warns), except `task`, which is refused: in Folio a task is a platform run (5.8). An import that calls something a task gives its folio no type. |
 | `status` | Its column on the board (4.3). |
 | `tags` | Free-form words for grouping and filtering. |
 | `owner`, `target_date` | Who is responsible (an email or a name) and when it is due (`YYYY-MM-DD`). |
@@ -496,11 +496,11 @@ Some of the work in a folio is done by **tasks**: standard, well-defined runs on
 
 **Tasks are hard-defined, never a to-do list.** A task exists only where a platform defines it and runs it. It is not a reminder, a checklist item, a human to-do ("get the groceries", "call the client", "review the copy") or open-ended work ("research this"), even when it is small, and even when a script or agent will do it. If it has no platform definition (a worker path and method, or a flow) to schedule, no run id to look up and no state the platform reports, it is not a task.
 
-**Anything else to be tracked within a folio is a sub-folio** (5): a folio inside the folio, with `type: "task"` (or `bug`, `request`...) if that helps, a status on the board, an owner, blockers, its own conversation and readiness. The word "task" as a *folio type* is ordinary work; a *Task* in `tasks/` is a platform run. When in doubt, make a sub-folio.
+**Anything else to be tracked within a folio is a sub-folio** (5): a folio inside the folio, with a type such as `request` or `bug` (or none), a status on the board, an owner, blockers, its own conversation and readiness. To keep the word unambiguous, Folio uses "task" for nothing else: `task` is not a folio type (5.1), and imports from tools that call their items tasks (Asana) make folios with no type. When in doubt, make a sub-folio.
 
 | Use | For |
 |---|---|
-| A **sub-folio** | Work people or agents do and track: to-dos, steps, checklists, follow-ups, research, reviews, anything a person marks done |
+| A **sub-folio** | Work people or agents do and track: to-dos, steps, follow-ups, research, reviews, anything a person marks done |
 | A **task** (`tasks/`) | A run of a defined worker method or flow on an execution platform, started and finished there |
 
 A task has:
@@ -726,7 +726,7 @@ Where it was dropped refines this:
 - **On a folio inside a folio:** everything goes to that folio, by the same rule. Its emails are in its `comms/`, its files in its `attachments/`.
 - **On a folder:** files go into that folder. Emails, repositories and links still go to their own places.
 
-**Text formats.** Text is HTML when it is a document (`<!doctype html>`, `<html>`) or mostly markup (starts with a tag and has several); Markdown when it has two or more signs of it (a heading, code fence, table or task list counts double; links, emphasis, lists, quotes, inline code and rules count once; three or more bullets count too); otherwise plain text. Detection is a guess, so:
+**Text formats.** Text is HTML when it is a document (`<!doctype html>`, `<html>`) or mostly markup (starts with a tag and has several); Markdown when it has two or more signs of it (a heading, code fence, table or checklist (`- [ ]`) counts double; links, emphasis, lists, quotes, inline code and rules count once; three or more bullets count too); otherwise plain text. Detection is a guess, so:
 
 - **Before saving**, an interface shows what was detected and offers the other types. An item may carry `as` to choose: `markdown`, `html`, `text` (a note of that type, or a text file given that extension), `json`, `import`, `comment`, `update`, `file` (keep a dropped file as a file, never import it). `name` names a text note's file. `folio.choices(item, { folder })` returns the detected kind and type, where it would go, and the other choices.
 - **After saving**, `folio.setTextFormat(path, format)` changes a `.md`, `.html` or `.txt` file to another of those types: the file is renamed, its content kept, and `links` in `folio.json` that point at it follow.
@@ -889,11 +889,11 @@ Recommended labels are **Folders**, **Folios**, and **Connections**. Within a fo
 
 ### 13.1.1 Folder board
 
-A folder opens as a **board**, like a project's task board: every folio inside it (at any depth) is a card in the column of its status (4.3). A card shows the title, summary, where it sits below the folder, tags, target date and owner (all from `folio.json`). Dragging a card to another column changes the folio's status in its `folio.json`; dropping files on a card adds them to that folio; each column can add a new folio with that status. Icons and list views remain available, and archived folios are shown on request.
+A folder opens as a **board**, like a kanban board: every folio inside it (at any depth) is a card in the column of its status (4.3). A card shows the title, summary, where it sits below the folder, tags, target date and owner (all from `folio.json`). Dragging a card to another column changes the folio's status in its `folio.json`; dropping files on a card adds them to that folio; each column can add a new folio with that status. Icons and list views remain available, and archived folios are shown on request.
 
 ### 13.2 Folio overview
 
-A folio opens as itself, like a case in a help desk or a task in Asana, not as a folder. Its main view shows, on one page:
+A folio opens as itself, like a case in a help desk or a card on a project board, not as a folder. Its main view shows, on one page:
 
 - Title, state (with the reason when it is blocked, waiting or a draft) and Mark Done.
 - Description and files (attachments and notes).

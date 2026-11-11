@@ -127,3 +127,16 @@ test('overview counts tasks; validate reports a broken task record', async () =>
   assert.equal(v.ok, false);
   assert.ok(v.problems.some((p) => p.code === 'task_environment' && p.path === 'tasks/bad/task.json'));
 });
+
+test('"task" is not a folio type: refused when set, warned about when found, dropped on import', async () => {
+  const { folio, fs } = await make();
+  await assert.rejects(folio.createChild({ title: 'Call Tim', type: 'task' }), /not a folio type/);
+  await assert.rejects(folio.edit({ type: 'Task' }), /not a folio type/);
+  const m = JSON.parse((await fs.read('folio.json')).text);
+  await fs.write('folio.json', JSON.stringify({ ...m, type: 'task' }));
+  assert.ok((await validateFolio(fs)).problems.some((p) => p.code === 'manifest_reserved_type' && p.level === 'warning'));
+  await fs.write('folio.json', JSON.stringify(m));
+  const r = await folio.import({ folios: [{ id: 'a', title: 'Call Tim', type: 'task' }] });
+  const kid = JSON.parse((await fs.read(`${r.created[0].dir}/folio.json`)).text);
+  assert.equal(kid.type, undefined);
+});

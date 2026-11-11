@@ -1,15 +1,16 @@
 import { ValidationError } from './errors.js';
 import { htmlToText } from './text-format.js';
 import { FOLIO_STATUSES } from './manifest.js';
-import { FOLIO_TYPES } from './relations.js';
+import { FOLIO_TYPES, RESERVED_TYPES } from './relations.js';
 
 /**
  * Importing work from other tools. An export (a JSON file, or JSON pasted as text) is recognised by its shape and
  * turned into folios. Recognised formats:
  *
- *   asana          Asana's JSON export or API responses: { data: [task, ...] }, { data: task } or [task, ...].
- *                  Subtasks, sections, tags, assignees, due dates, completion, custom fields (kept as text),
- *                  dependencies and comments (stories) are kept.
+ *   asana          Asana's JSON export or API responses: { data: [item, ...] }, { data: item } or [item, ...]
+ *                  (Asana's JSON calls its items "tasks"; here each becomes a folio with no type unless a
+ *                  "Type" field gives one). Sub-items, sections, tags, assignees, due dates, completion,
+ *                  custom fields (kept as text), dependencies and comments (stories) are kept.
  *   trello         A Trello board export: { cards, lists, labels, actions? }.
  *   folio-list     { folios: [{ title, description?, type?, status?, tags?, ... }] }, for agents and scripts
  *
@@ -24,6 +25,7 @@ const day = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.sl
 
 const typeFrom = (value) => {
   const v = str(value).toLowerCase().trim();
+  // "task" is not a folio type (SPEC 5.8): an item another tool calls a task is a folio with no type.
   return FOLIO_TYPES.find((t) => t === v || `${t}s` === v) || (/defect|issue/.test(v) ? 'bug' : undefined);
 };
 function statusFromLabel(label) {
@@ -39,24 +41,24 @@ const notSection = (name) => !/^(untitled section|\(no section\)|no section)$/i.
 
 // ---- Asana ----
 
-const asanaTasksOf = (doc) => {
+const asanaItemsOf = (doc) => {
   const d = doc && typeof doc === 'object' && !Array.isArray(doc) && 'data' in doc ? doc.data : doc;
   return Array.isArray(d) ? d : d && typeof d === 'object' ? [d] : [];
 };
-const looksLikeAsanaTask = (t) =>
+const looksLikeAsanaItem = (t) =>
   t && typeof t === 'object' && typeof t.gid === 'string' && typeof t.name === 'string' && (t.resource_type === 'task' || 'completed' in t || 'memberships' in t || 'notes' in t || 'html_notes' in t || 'assignee' in t);
 
 function asanaDetect(doc) {
-  const tasks = asanaTasksOf(doc);
-  if (!tasks.length) return null;
-  const good = tasks.filter(looksLikeAsanaTask).length;
-  if (good / tasks.length < 0.8) return null;
+  const items = asanaItemsOf(doc);
+  if (!items.length) return null;
+  const good = items.filter(looksLikeAsanaItem).length;
+  if (good / items.length < 0.8) return null;
   let total = 0;
   let sub = 0;
   let sections = new Set();
   const walk = (list, depth) => {
     for (const t of list) {
-      if (!looksLikeAsanaTask(t)) continue;
+      if (!looksLikeAsanaItem(t)) continue;
       if (t.resource_subtype === 'section' || t.is_rendered_as_separator) {
         sections.add(t.name.replace(/:$/, ''));
         continue;
@@ -67,17 +69,17 @@ function asanaDetect(doc) {
       if (Array.isArray(t.subtasks)) walk(t.subtasks, depth + 1);
     }
   };
-  walk(tasks, 0);
+  walk(items, 0);
   if (!total) return null;
-  const project = tasks.flatMap((t) => (t.memberships || []).map((m) => m?.project?.name).concat((t.projects || []).map((p) => p?.name))).find(Boolean);
-  return { items: total, subtasks: sub, sections: sections.size, ...(project ? { project } : {}) };
+  const project = items.flatMap((t) => (t.memberships || []).map((m) => m?.project?.name).concat((t.projects || []).map((p) => p?.name))).find(Boolean);
+  return { items: total, sub_items: sub, sections: sections.size, ...(project ? { project } : {}) };
 }
 
 function asanaPlan(doc) {
   const out = [];
-  let currentSection = null; // older exports mark sections with separator tasks, in order
+  let currentSection = null; // older exports mark sections with separator items, in order
   const visit = (t, parentGid) => {
-    if (!looksLikeAsanaTask(t)) return;
+    if (!looksLikeAsanaItem(t)) return;
     if (t.resource_subtype === 'section' || t.is_rendered_as_separator) {
       currentSection = t.name.replace(/:$/, '').trim();
       return;
@@ -85,7 +87,7 @@ function asanaPlan(doc) {
     const sections = [...new Set([...(t.memberships || []).map((m) => m?.section?.name).filter(Boolean), ...(currentSection && !parentGid ? [currentSection] : [])])].filter(notSection);
     const fields = Array.isArray(t.custom_fields) ? t.custom_fields : [];
     const fieldValue = (f) => f?.enum_value?.name ?? f?.display_value ?? f?.text_value ?? f?.number_value ?? (Array.isArray(f?.multi_enum_values) ? f.multi_enum_values.map((v) => v.name).join(', ') : null);
-    const tField = fields.find((f) => /^(type|kind|category|task type|ticket type)$/i.test(str(f?.name).trim()));
+    const tField = fields.find((f) => /^(type|kind|category|(task|item|ticket) type)$/i.test(str(f?.name).trim()));
     const sField = fields.find((f) => /^status$/i.test(str(f?.name).trim()));
     const others = fields.filter((f) => f !== tField && f !== sField && fieldValue(f) !== null && fieldValue(f) !== '');
     const notes = str(t.notes).trim() || (t.html_notes ? htmlToText(t.html_notes) : '');
@@ -93,7 +95,7 @@ function asanaPlan(doc) {
       ...(t.assignee?.name ? [`Assignee in Asana: ${t.assignee.name}`] : []),
       ...others.map((f) => `${str(f.name)}: ${fieldValue(f)}`),
       ...(t.start_on ? [`Start: ${t.start_on}`] : []),
-      `Imported from Asana${t.permalink_url ? `: ${t.permalink_url}` : ` (task ${t.gid})`}`,
+      `Imported from Asana${t.permalink_url ? `: ${t.permalink_url}` : ` (${t.gid})`}`,
     ];
     const status = t.completed ? 'completed' : statusFromLabel(fieldValue(sField)) || sections.map(statusFromLabel).find(Boolean) || 'backlog';
     const comments = (Array.isArray(t.stories) ? t.stories : [])
@@ -101,23 +103,23 @@ function asanaPlan(doc) {
       .map((s) => ({ text: str(s.text), author: s.created_by?.name || null, at: s.created_at || null }));
     out.push({
       key: t.gid,
-      title: t.name.trim() || `Asana task ${t.gid}`,
+      title: t.name.trim() || `Asana item ${t.gid}`,
       description: [notes, footer.join('\n')].filter(Boolean).join('\n\n---\n'),
-      type: typeFrom(fieldValue(tField)) || (t.resource_subtype === 'approval' ? 'review' : 'task'),
+      type: typeFrom(fieldValue(tField)) || (t.resource_subtype === 'approval' ? 'review' : undefined),
       status,
       ...(status === 'completed' ? { resolution: 'completed' } : {}),
       tags: [...sections, ...(t.tags || []).map((g) => g?.name).filter(Boolean), ...(t.resource_subtype === 'milestone' ? ['milestone'] : [])],
       ...(t.assignee ? { owner: t.assignee.email || t.assignee.name || undefined } : {}),
       ...(day(t.due_on || t.due_at) ? { target_date: day(t.due_on || t.due_at) } : {}),
       external: { source: 'asana', id: t.gid, ...(t.permalink_url ? { url: t.permalink_url } : {}), ...(t.created_at ? { created_at: t.created_at } : {}), ...(t.completed_at ? { completed_at: t.completed_at } : {}) },
-      ...(t.permalink_url ? { links: [{ type: 'url', label: 'Asana task', url: t.permalink_url }] } : {}),
+      ...(t.permalink_url ? { links: [{ type: 'url', label: 'Asana', url: t.permalink_url }] } : {}),
       parent: parentGid || t.parent?.gid || null,
       blocked_by: (t.dependencies || []).map((d) => d?.gid).filter(Boolean),
       comments,
     });
     for (const s of Array.isArray(t.subtasks) ? t.subtasks : []) visit(s, t.gid);
   };
-  for (const t of asanaTasksOf(doc)) visit(t, null);
+  for (const t of asanaItemsOf(doc)) visit(t, null);
   return out;
 }
 
@@ -149,7 +151,6 @@ function trelloPlan(doc) {
         key: c.id,
         title: c.name.trim() || `Trello card ${c.id}`,
         description: [str(c.desc).trim(), `Imported from Trello${c.shortUrl || c.url ? `: ${c.shortUrl || c.url}` : ''}`].filter(Boolean).join('\n\n---\n'),
-        type: 'task',
         status,
         ...(status === 'completed' ? { resolution: 'completed' } : status === 'archived' ? { resolution: 'cancelled' } : {}),
         tags: [...(list?.name ? [list.name] : []), ...tagNames],
@@ -183,7 +184,7 @@ function folioListPlan(doc) {
       key: k,
       title: t.title,
       description: str(t.description),
-      type: typeFrom(t.type) || (t.type && /^[a-z][a-z0-9_-]{0,39}$/.test(t.type) ? t.type : undefined),
+      type: typeFrom(t.type) || (t.type && /^[a-z][a-z0-9_-]{0,39}$/.test(t.type) && !RESERVED_TYPES.includes(t.type) ? t.type : undefined),
       status,
       ...(status === 'completed' ? { resolution: str(t.resolution) || 'completed' } : t.resolution ? { resolution: str(t.resolution) } : {}),
       tags: Array.isArray(t.tags) ? t.tags.map(str) : typeof t.tags === 'string' ? t.tags.split(',') : [],

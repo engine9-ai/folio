@@ -15,7 +15,7 @@ Use a folio to:
 - **Collect the request and the correspondence.** Forward or drag client emails in; they are kept as
   received, with their senders and recipients.
 - **Break the work down into folios inside the folio.** A bug, a request, a review, a phase: each is a
-  folio of its own (a sub-folio, of type `task`, `ticket`, `bug`, `support`...), with status, owner, tags, blockers, its
+  folio of its own (a sub-folio, of type `ticket`, `request`, `bug`, `support`...), with status, owner, tags, blockers, its
   own conversation and files, its own email address, and a history of every change. There is no separate
   kind of work item: everything is a folio.
 - **Keep track of tasks run elsewhere.** When the work is done by well-defined runs on a platform such as
@@ -48,7 +48,7 @@ forwarding, `folio add`, or MCP `add_to_folio`) and the folio files it (SPEC 8.6
 | Any other file | `attachments/`, or the folder it was dropped on |
 | A link | `sources/links/` |
 | Text (typed, or pasted from a chat, a document, an email) | A new file in `notes/` (or the folder it was added in): `.md` if it is Markdown, `.html` if it is HTML, `.txt` otherwise. Short text can be posted as a comment instead |
-| An Asana or Trello JSON export, or `{ "folios": [...] }` | Folios inside this one: subtasks (inside their task), dependencies, sections, tags, due dates and comments come along. Importing the same export again adds only what is new |
+| An Asana or Trello JSON export, or `{ "folios": [...] }` | Folios inside this one: sub-items (inside their parent), dependencies, sections, tags, due dates and comments come along. Importing the same export again adds only what is new |
 
 Every item gets a provenance record in `history/intake/`: when, by whom, through which interface.
 
@@ -83,9 +83,10 @@ agent will do it. A task is only something a platform defines and runs: a worker
 there, with a run id and a state the platform reports. If you could not look it up on the platform, it is not a
 task.
 
-**To track anything else within a folio, make a sub-folio**: a folio inside it (type `task`, `bug`, `request`... if
-you like), with its own status on the board, owner, blockers and conversation. That is how work is broken down in
-Folio. When in doubt, use a sub-folio.
+**To track anything else within a folio, make a sub-folio**: a folio inside it (type `request`, `bug`... if you
+like, or none), with its own status on the board, owner, blockers and conversation. That is how work is broken down in
+Folio. When in doubt, use a sub-folio. (So that "task" means one thing, `task` is not a folio type, and items
+imported from tools that call them tasks get no type.)
 
 The platform is in charge: it holds the definition, runs the task and keeps its logs. The folio keeps a copy
 for the people and agents who come later: what was asked, by whom, the run ids to find it again, how it went.
@@ -173,7 +174,7 @@ other way (a file edited by hand, a copied folder).
   Key and credential files (`.env`, `.pem`, `id_rsa`, `.kdbx`, …) are refused; credentials in text are
   replaced with a note pointing to the password manager.
 - **Payment card numbers, bank account numbers (IBAN), US Social Security numbers.** Never: there is no
-  support task that needs them in a shared record. They are replaced with a masked form
+  piece of support work that needs them in a shared record. They are replaced with a masked form
   (`**** **** **** 6467`) in notes, comments, folio summaries and text files. An email that contains
   one is stored as a text copy without it, and the original email is held temporarily like a data file.
   Known test values (`4242 4242 4242 4242`) are left alone.
