@@ -26,6 +26,7 @@ node bin/folio.js import ./my-folio asana-export.json     # Asana / Trello / { f
 node bin/folio.js retype ./my-folio notes/2026-11-09-kickoff.txt markdown
 node bin/folio.js ready ./my-folio        # what could someone start now?
 node bin/folio.js validate ./my-folio     # broken references, loops, secrets, unattested edits
+node bin/folio.js checklist ./my-folio --add "Send DNS change"   # README checkboxes; --check 1, --remove 1
 node bin/folio.js task add ./my-folio --env engine9/acme --path @engine9/plugins/e9workers:EchoWorker --method echo --within 30
 node bin/folio.js task set ./my-folio echo-echoworker --state COMPLETED --records 1   # bring the record up to date
 node bin/folio.js task list ./my-folio    # tasks run elsewhere, with state and whether they are overdue
@@ -64,6 +65,11 @@ await folio.clientThread();  // { waiting: 'us' | 'client', since, first_reply, 
 await folio.receive({ channel: 'slack', address: '#acme-support' }, 'On it', { ref: 'ts-1' }); // a reply, credited to the CC
 await folio.emails();      // filed emails: headers, readable body text
 
+// The checklist: Markdown checkboxes under "## Checklist" in README.md (SPEC 5.9). Small things only.
+await folio.editChecklist({ add: ['Confirm launch date', 'Send DNS change'], check: [1] });   // by number or text
+await folio.checklist();                        // { items: [{ n, done, text }], done: 1, total: 2 }
+await folio.checklistItemToFolio('Send DNS change', { actor });   // too big for a checklist: a folio inside this one
+
 // Tasks: well-defined work run on a platform such as engine9 (SPEC 5.8); the folio keeps a copy.
 const task = await folio.addTask({ title: 'Create database', environment: 'engine9/acme',
   path: '@engine9/plugins/e9workers:EchoWorker', method: 'echo', options: { message: 'hi' }, within_minutes: 30,
@@ -90,7 +96,7 @@ Behaviours worth knowing:
 - **Content policy lives here too** (SPEC 3.7, [GUIDE.md](GUIDE.md)). Intake removes credentials and card, bank and Social Security numbers from text, refuses key files, skips `.git`/`node_modules`, and summarises data files and logs (`summarizeData`, using [`@engine9/pii-classifier`](https://github.com/engine9-ai/pii-classifier)) into `sources/data/` instead of storing them. The originals go to the `hold` you pass to `Folio.open(fs, { hold })` (folio-server: R2; CLI: `LocalHold`, `~/.folio/hold`). `scrubText(text)` and `prohibitedIn(text)` are exported for hosts.
 - **Intake routing lives here.** `folio.add(item, { folder })` recognises repositories, emails, links, text and files and puts each in the right place, with provenance under `history/intake/`. Hosts (the browser, email forwarding, MCP, the CLI) only hand items over.
 - **Binary files.** `write(path, data)` takes a string or a `Uint8Array`; stores may add `readBytes(path)`. Manifest and message files stay JSON text.
-- **Every folio carries** `type`, `tags`, `owner`, `target_date`, `outcome`, `resolution`, `waiting_on`, `hold`, `relationships`, `links`, `external` and `aliases` (SPEC 5.1). `EDITABLE` lists what `edit()` accepts; custom types and statuses are allowed with a warning, except type `task` (`RESERVED_TYPES`), which is refused: a task is a platform run.
+- **Every folio carries** `type`, `tags`, `owner`, `target_date`, `outcome`, `resolution`, `waiting_on`, `hold`, `relationships`, `links`, `external` and `aliases` (SPEC 5.1). `EDITABLE` lists what `edit()` accepts; custom types and statuses are allowed with a warning, except type `task` (`RESERVED_TYPES`), which is refused: a task is a platform run. Something to do is an `action`; Asana tasks and Trello cards import as `action` folios.
 - **Text formats.** `detectTextFormat(text)` says Markdown, HTML or plain text (with reasons); `titleOfText` and `htmlToText` are exported. Intake items may carry `as` (`markdown`, `html`, `text`, `json`, `import`, `comment`, `update`, `file`) and `name`.
 - **Imports.** `detectImport(json)` recognises Asana, Trello and `{ folios }` exports; `folio.import()` creates folios inside the folio in one pass (ids claimed first, so dependencies can point at folios not yet written; sub-items go inside their parent), records `external: { source, id, url }` on each, and writes a report to `history/imports/`.
 - **Folders all the way down.** A folder with a `folio.json` is a folio; folios can hold folios. `Folio.open(fs, { nested })` takes the nested folios' folders (or `'detect'`) and hides them through `ExcludingFs`; `nestedFolioDirs(fs)` finds them; `folio.child(dir)` opens one through `SubFs`, and `createChild` makes one (and calls the host's `onChild`). Folio's own directories (`RESERVED_DIRS`) never hold nested folios.

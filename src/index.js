@@ -4,6 +4,7 @@ export { INTAKE_AS, INTAKE_KINDS, classify, intakeChoices, repositoryFromUrl, sa
 export { TEXT_FORMATS, detectTextFormat, htmlToText, textFormatOf, titleOfText } from './text-format.js';
 export { IMPORTERS, IMPORT_FORMATS, MAX_IMPORT_ITEMS, detectImport, parseJsonText, planImport } from './import.js';
 export { CC_AUDIENCES, CC_AUDIENCE_LABELS, CC_CHANNELS, CC_CHANNEL_LABELS, CC_KINDS, MAX_CC, authorChannel, ccAudience, ccAuthor, ccChannelLabel, ccKey, findCc, normalizeCc, parseCc, validateCc } from './cc.js';
+export { CHECKLIST_FILE, CHECKLIST_HEADING, MAX_CHECKLIST_ITEMS, checklistCounts, editChecklistText, parseChecklist } from './checklist.js';
 export {
   MAX_TASK_OUTPUT,
   TASKS_DIR,

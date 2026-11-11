@@ -78,7 +78,7 @@ test('an Asana export becomes folios: sub-items inside their parent, sections, t
   const page = by('Redesign donate page');
   assert.equal(page.dir, 'redesign-donate-page');
   const m = page.manifest;
-  assert.deepEqual([m.type, m.status, m.priority, m.owner, m.target_date], [undefined, 'active', undefined, 'Riley Chen', '2026-12-01']);
+  assert.deepEqual([m.type, m.status, m.priority, m.owner, m.target_date], ['action', 'active', undefined, 'Riley Chen', '2026-12-01']);
   assert.deepEqual(m.tags, ['In Progress', 'Design']);
   assert.deepEqual(m.external, { source: 'asana', id: '1201', url: 'https://app.asana.com/0/42/1201', created_at: '2026-10-01T10:00:00.000Z' });
   assert.deepEqual(m.links, [{ type: 'url', label: 'Asana', url: 'https://app.asana.com/0/42/1201' }]);
@@ -185,6 +185,7 @@ test('a Trello board export becomes folios', async () => {
   const b = all.find((d) => d.manifest.title === 'Pick a date').manifest;
   assert.deepEqual([a.manifest.status, a.manifest.priority, a.manifest.tags, a.manifest.target_date], ['active', undefined, ['Doing', 'Urgent', 'Copy'], '2026-11-20']);
   assert.equal(b.status, 'completed');
+  assert.equal(a.manifest.type, 'action');
   assert.equal((await folio.child(a.dir).comms())[0].text, '(Trello, Pat, 2026-11-01) Draft is in the doc');
 });
 

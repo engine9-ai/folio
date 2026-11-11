@@ -12,6 +12,7 @@ import { TEXT_FORMATS, textFormatOf } from './text-format.js';
 import { parseJsonText, planImport } from './import.js';
 import { COMMS_DIR, clientThread, isEmailPath, postMessage, readComms } from './comms.js';
 import { TASKS_DIR, TASK_FILE, TASK_OUTPUT_FILE, applyTaskUpdate, createTaskRecord, environmentLabel, isTaskId, isTerminalState, taskDirName, taskOutputText, taskStateLabel, taskSummary, taskTarget } from './tasks.js';
+import { CHECKLIST_FILE, checklistCounts, editChecklistText, findItem, parseChecklist } from './checklist.js';
 import { CC_AUDIENCES, MAX_CC, ccAudience, ccAuthor, ccKey, findCc, normalizeCc, parseCc } from './cc.js';
 
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
@@ -95,8 +96,9 @@ export class Folio {
    * @param onChild     called with { id, dir, manifest } after a folio is created inside this one (hosts register it).
    * @param onMessage   called with each new message after it is written to comms/ ({ path, kind, at, author, text, ... };
    *                    for an email also { subject, from, to }). Hosts use it to pass messages on to the folio's CCs.
+   * @param onChecklist called with the checklist's counts ({ done, total }, or null) after it changes (hosts show them on cards).
    */
-  constructor(fs, { now = () => new Date().toISOString(), hold = null, nested = [], onManifest = null, onChild = null, onMessage = null } = {}) {
+  constructor(fs, { now = () => new Date().toISOString(), hold = null, nested = [], onManifest = null, onChild = null, onMessage = null, onChecklist = null } = {}) {
     this.root = fs;
     this.nested = Array.isArray(nested) ? nested.map((d) => normalizePath(d)) : [];
     this.fs = this.nested.length ? new ExcludingFs(fs, this.nested) : fs;
@@ -105,6 +107,7 @@ export class Folio {
     this.onManifest = onManifest;
     this.onChild = onChild;
     this.onMessage = onMessage;
+    this.onChecklist = onChecklist;
   }
 
   /** Create a minimal folio: folio.json + README.md. Fails if one already exists here. */
@@ -466,6 +469,53 @@ export class Folio {
     return { ...r, cc: ccKey(hit) };
   }
 
+  // ---- the checklist: Markdown checkboxes in README.md (checklist.js, spec 5.9) ----
+
+  /** The folio's checklist: { items: [{ n, done, text }], done, total }. Empty when the README has none. */
+  async checklist() {
+    const cur = await this.fs.read(CHECKLIST_FILE);
+    const items = parseChecklist(cur?.text || '').items.map(({ n, done, text }) => ({ n, done, text }));
+    return { items, done: items.filter((i) => i.done).length, total: items.length, etag: cur?.etag ?? null };
+  }
+
+  /**
+   * Change the checklist in one go: { add: [text], check: [ref], uncheck: [ref], remove: [ref], rename: [{ item, text }] },
+   * where ref is an item's number, its text, or { n, expect } (expect: its text as last seen). Only README.md's
+   * Checklist section changes; nothing is posted and status is untouched. A change made meanwhile by someone else
+   * is merged (the edit is applied again to the new README) unless `ifMatch` was given. Returns { items, done, total }.
+   */
+  async editChecklist(changes = {}, { ifMatch } = {}) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const cur = await this.fs.read(CHECKLIST_FILE);
+      if (!cur) throw new NotFoundError(CHECKLIST_FILE);
+      const { text, items, changed } = editChecklistText(cur.text, changes);
+      const out = { items, done: items.filter((i) => i.done).length, total: items.length };
+      if (!changed) return out;
+      try {
+        await this.fs.write(CHECKLIST_FILE, text, { ifMatch: ifMatch ?? cur.etag });
+      } catch (e) {
+        if (e instanceof ConflictError && !ifMatch && attempt < 2) continue;
+        throw e;
+      }
+      if (this.onChecklist) await this.onChecklist(checklistCounts(text));
+      return out;
+    }
+    throw new ConflictError(CHECKLIST_FILE);
+  }
+
+  /**
+   * Turn a checklist item into a folio inside this one (when it needs an owner, a date, a conversation...): the
+   * folio is created with the item's text as its title (and `fields`), and the item leaves the checklist.
+   * Returns what createChild returns.
+   */
+  async checklistItemToFolio(ref, { actor = defaultActor, via = 'folio-lib', ...fields } = {}) {
+    const cur = await this.fs.read(CHECKLIST_FILE);
+    const item = findItem(parseChecklist(cur?.text || '').items, ref);
+    const child = await this.createChild({ title: item.text, ...(item.done ? { status: 'completed', resolution: 'completed' } : {}), ...fields }, { actor, via });
+    await this.editChecklist({ remove: [{ n: item.n, expect: item.text }] });
+    return child;
+  }
+
   // ---- tasks: well-defined work run elsewhere (tasks.js, spec 5.8) ----------------
 
   /**
@@ -790,10 +840,10 @@ export class Folio {
 
   /**
    * The folio at a glance: its manifest and readiness, the folios inside it by state, those ready to start,
-   * tags in use, repositories, connections, and its tasks (counts and the latest ten).
+   * tags in use, repositories, connections, its checklist, and its tasks (counts and the latest ten).
    */
   async overview({ statusOf } = {}) {
-    const [{ manifest }, kids, taskList] = await Promise.all([this.manifest(), this.children({ statusOf }), this.tasks()]);
+    const [{ manifest }, kids, taskList, list] = await Promise.all([this.manifest(), this.children({ statusOf }), this.tasks(), this.checklist()]);
     const counts = { ready: 0, in_progress: 0, waiting: 0, blocked: 0, draft: 0, done: 0 };
     for (const c of kids) counts[c.readiness.state] += 1;
     return {
@@ -805,6 +855,7 @@ export class Folio {
       repositories: (manifest.repositories || []).map(describeRepository),
       cc: (manifest.cc || []).map((c) => ({ ...c, audience: ccAudience(c), key: ccKey(c), integration_state: 'reference_only' })),
       connections: (manifest.connections || []).map((c) => ({ ...c, integration_state: 'reference_only' })),
+      checklist: { done: list.done, total: list.total, items: list.items },
       tasks: { total: taskList.length, open: taskList.filter((t) => !t.done).length, overdue: taskList.filter((t) => t.overdue).length, recent: taskList.slice(-10) },
     };
   }

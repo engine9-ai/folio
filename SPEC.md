@@ -371,8 +371,8 @@ An export from another tool becomes **folios inside the folio** it is added to. 
 
 | Format | Recognised by | Becomes |
 |---|---|---|
-| Asana | Asana's project JSON export or API lists: `{ "data": [item, ...] }`, `{ "data": item }` or `[item, ...]`, where items have `gid` and `name` and Asana's fields (Asana calls them tasks) | One folio per item, with no type unless a "Type" field gives one. Sub-items go inside their parent's folio, `dependencies` become `blocked_by`, sections and tags become tags, a "Type" field the type, completed items are `completed`, a section like "In progress" or "Waiting" sets the status, `due_on` the target date, the assignee the owner, `notes` (or `html_notes`) the README with the other custom fields (a "Priority" field included, as text) and the Asana link below it, and comments in `stories` the folio's `comms/` |
-| Trello | A board export: `{ cards, lists, labels, actions }` | One folio per card: the list and labels become tags, a "Done" list completes it, an archived card is archived, comments go to `comms/` |
+| Asana | Asana's project JSON export or API lists: `{ "data": [item, ...] }`, `{ "data": item }` or `[item, ...]`, where items have `gid` and `name` and Asana's fields (Asana calls them tasks) | One folio per item, of type `action` unless a "Type" field says otherwise (an approval is a `review`). Sub-items go inside their parent's folio, `dependencies` become `blocked_by`, sections and tags become tags, a "Type" field the type, completed items are `completed`, a section like "In progress" or "Waiting" sets the status, `due_on` the target date, the assignee the owner, `notes` (or `html_notes`) the README with the other custom fields (a "Priority" field included, as text) and the Asana link below it, and comments in `stories` the folio's `comms/` |
+| Trello | A board export: `{ cards, lists, labels, actions }` | One folio (type `action`) per card: the list and labels become tags, a "Done" list completes it, an archived card is archived, comments go to `comms/` |
 | Folio list | `{ "folios": [{ id, title, description, type, status, tags, owner, target_date, parent, blocked_by, comments }] }` | One folio each; `parent` and `blocked_by` refer to other entries by `id` |
 
 - Each imported folio records where it came from in `external` (`{ source, id, url }`). **Importing the same export again skips what was already imported**, so an export can be re-imported after more work was added to it.
@@ -392,7 +392,7 @@ The fields that matter for tracking work all live in `folio.json`:
 | Field | Meaning |
 |---|---|
 | `id`, `title`, `summary` | Identity and what it is. The folder name follows the title and may change; the id does not. |
-| `type` | Why it exists. Suggested: `project`, `ticket`, `request`, `support`, `bug`, `feature`, `review`, `investigation`, `epic`. Others are allowed (a lowercase word; validation warns), except `task`, which is refused: in Folio a task is a platform run (5.8). An import that calls something a task gives its folio no type. |
+| `type` | Why it exists. Suggested: `project`, `action`, `ticket`, `request`, `support`, `bug`, `feature`, `review`, `investigation`, `epic`. Others are allowed (a lowercase word; validation warns), except `task`, which is refused: in Folio a task is a platform run (5.8). Something someone has to do (an action item; what other tools call a task or a to-do) is an **`action`**, and imports map those tools' tasks, cards and to-dos to it. |
 | `status` | Its column on the board (4.3). |
 | `tags` | Free-form words for grouping and filtering. |
 | `owner`, `target_date` | Who is responsible (an email or a name) and when it is due (`YYYY-MM-DD`). |
@@ -496,11 +496,12 @@ Some of the work in a folio is done by **tasks**: standard, well-defined runs on
 
 **Tasks are hard-defined, never a to-do list.** A task exists only where a platform defines it and runs it. It is not a reminder, a checklist item, a human to-do ("get the groceries", "call the client", "review the copy") or open-ended work ("research this"), even when it is small, and even when a script or agent will do it. If it has no platform definition (a worker path and method, or a flow) to schedule, no run id to look up and no state the platform reports, it is not a task.
 
-**Anything else to be tracked within a folio is a sub-folio** (5): a folio inside the folio, with a type such as `request` or `bug` (or none), a status on the board, an owner, blockers, its own conversation and readiness. To keep the word unambiguous, Folio uses "task" for nothing else: `task` is not a folio type (5.1), and imports from tools that call their items tasks (Asana) make folios with no type. When in doubt, make a sub-folio.
+**Anything else to be tracked within a folio is a sub-folio** (5): a folio inside the folio, with a type such as `action` (something someone has to do), `request` or `bug`, or none; a status on the board, an owner, blockers, its own conversation and readiness. A quick list of small things to tick off is the folio's **checklist** (5.9). To keep the word unambiguous, Folio uses "task" for nothing else: `task` is not a folio type (5.1), and what other tools call tasks (Asana tasks, Trello cards, to-dos) are imported as `action` folios. When in doubt, make a sub-folio.
 
 | Use | For |
 |---|---|
-| A **sub-folio** | Work people or agents do and track: to-dos, steps, follow-ups, research, reviews, anything a person marks done |
+| A **checklist item** (5.9) | A small thing to tick off: one line, done or not, nothing else |
+| A **sub-folio** (often type `action`) | Work people or agents do and track: anything with an owner, a date, a blocker or a conversation; follow-ups, research, reviews |
 | A **task** (`tasks/`) | A run of a defined worker method or flow on an execution platform, started and finished there |
 
 A task has:
@@ -569,6 +570,28 @@ Other optional fields: `summary`, `description`, `tracking_code` (engine9's flow
 5. **Listing** (`folio.tasks()`, MCP `list_tasks`) gives each task's state, environment, target, run ids, window and whether it is overdue; the overview counts total, open and overdue tasks. `validate` reports a `task.json` that is not a readable task.
 
 Whether a task should itself be a folio (with its own conversation and sharing) is left open (17); the folder per task keeps that possible.
+
+### 5.9 Checklist: quick things to tick off
+
+Some folios need a short list of small things to tick off ("Confirm the launch date", "Send the DNS request") that do not each deserve a folio. That is the folio's **checklist**: ordinary Markdown checkboxes under a `Checklist` heading in its `README.md`.
+
+```markdown
+## Checklist
+
+- [x] Confirm launch date with Tim
+- [ ] Send DNS change request
+- [ ] Check redirects after cutover
+```
+
+It is deliberately simple and quick:
+
+- **An item is one line of text, done or not.** No owners, dates, nesting, blockers, comments or history. Anything that needs one of those is a **sub-folio** (usually type `action`), and any item can be turned into one ("Make Folio": the item becomes a folio inside this one, with its text as the title, and leaves the checklist).
+- **It changes nothing else.** Ticking an item does not post to the conversation, change the folio's status or readiness, or add to its change history (5.4). People mark the folio done (4.3).
+- **At most 50 items**, each at most 300 characters. A longer list is work broken down into folios.
+- **Plain files.** The checklist is part of `README.md`, so it reads and edits in any Markdown editor and travels with the folio. Only the lines that are items (`- [ ]`, `- [x]`, also `*` or `+`) in the first section headed `Checklist` (any heading level, up to the next heading of the same or higher level; not inside code fences) are the checklist. Items are numbered from 1 in order; other lines in the section and the rest of the README are left alone. Adding to a folio with no checklist adds a `## Checklist` section at the end of its README.
+- Text is scrubbed of card numbers and credentials like everything else (3.7).
+
+The library reads it with `folio.checklist()` (`{ items: [{ n, done, text }], done, total }`) and changes it with `folio.editChecklist({ add, check, uncheck, remove, rename })` (items by number, by text, or `{ n, expect }` so a checklist changed meanwhile is not ticked in the wrong place) and `folio.checklistItemToFolio(item)`. Hosts are told the counts (`onChecklist`) to show "2/3" on the folio's card. Over MCP: `get_checklist` and `update_checklist`.
 
 ---
 
@@ -1006,7 +1029,7 @@ The following choices are intentionally left flexible, provided the foundational
 - **What search experience is offered.** Search can improve considerably without becoming authoritative storage.
 - **Whether folios later support templates or reusable practices.** Templates should produce ordinary folio folders, not introduce invisible state or mandatory infrastructure.
 - **Whether tasks become folios.** Each task has its own folder in `tasks/` (5.8) so it could later gain a conversation, sharing or folios of its own without moving.
-- **Whether folios later incorporate checklists.** Checklists, if introduced, should remain a lower-level concept subordinate to the folio's outcome.
+- **How far checklists go.** The checklist (5.9) stays a lower-level convenience subordinate to the folio's outcome; anything richer is a sub-folio.
 
 These are areas for product evolution, not reasons to weaken the core folder model.
 
@@ -1031,6 +1054,7 @@ A successful folio stands on its own. The hosted application provides a pleasant
 - A browser workspace laid out like a Finder window: folio list, the folio's folder, the folios inside it as a board or list (with readiness, type and tags), Quick Look, repositories, files, sharing.
 - Drag and drop, paste and upload into a folio, filed by the library's routing rule (8.6): text saved as Markdown, HTML or plain text by detection, with the type chosen before or changed after; Asana, Trello and Folio-list exports imported as folios (4.4.1).
 - Email forwarding to a folio's intake address (8.1).
+- The checklist (5.9): Markdown checkboxes in the README, ticked on the folio's page, counted on its card.
 - Tasks (5.8): engine9-style task records in `tasks/`, kept by agents over MCP (`add_task`, `update_task`, `list_tasks`, `get_task`) and the library, shown on the folio's page.
 
 ### Deferred, and what will be needed

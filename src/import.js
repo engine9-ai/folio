@@ -8,10 +8,10 @@ import { FOLIO_TYPES, RESERVED_TYPES } from './relations.js';
  * turned into folios. Recognised formats:
  *
  *   asana          Asana's JSON export or API responses: { data: [item, ...] }, { data: item } or [item, ...]
- *                  (Asana's JSON calls its items "tasks"; here each becomes a folio with no type unless a
- *                  "Type" field gives one). Sub-items, sections, tags, assignees, due dates, completion,
+ *                  (Asana calls its items "tasks"; here each becomes a folio of type `action` unless a
+ *                  "Type" field says otherwise). Sub-items, sections, tags, assignees, due dates, completion,
  *                  custom fields (kept as text), dependencies and comments (stories) are kept.
- *   trello         A Trello board export: { cards, lists, labels, actions? }.
+ *   trello         A Trello board export: { cards, lists, labels, actions? }. Each card is an `action`.
  *   folio-list     { folios: [{ title, description?, type?, status?, tags?, ... }] }, for agents and scripts
  *
  * Each imported folio remembers where it came from in `external` ({ source, id, url }), so importing the same
@@ -25,7 +25,9 @@ const day = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.sl
 
 const typeFrom = (value) => {
   const v = str(value).toLowerCase().trim();
-  // "task" is not a folio type (SPEC 5.8): an item another tool calls a task is a folio with no type.
+  // Another tool's "task" (an Asana task, a to-do, an action item) is an action here: in Folio a task is only a
+  // platform run (SPEC 5.8).
+  if (/^(tasks?|sub-?tasks?|to-?dos?|action items?)$/.test(v)) return 'action';
   return FOLIO_TYPES.find((t) => t === v || `${t}s` === v) || (/defect|issue/.test(v) ? 'bug' : undefined);
 };
 function statusFromLabel(label) {
@@ -105,7 +107,7 @@ function asanaPlan(doc) {
       key: t.gid,
       title: t.name.trim() || `Asana item ${t.gid}`,
       description: [notes, footer.join('\n')].filter(Boolean).join('\n\n---\n'),
-      type: typeFrom(fieldValue(tField)) || (t.resource_subtype === 'approval' ? 'review' : undefined),
+      type: typeFrom(fieldValue(tField)) || (t.resource_subtype === 'approval' ? 'review' : t.resource_subtype === 'milestone' ? undefined : 'action'),
       status,
       ...(status === 'completed' ? { resolution: 'completed' } : {}),
       tags: [...sections, ...(t.tags || []).map((g) => g?.name).filter(Boolean), ...(t.resource_subtype === 'milestone' ? ['milestone'] : [])],
@@ -151,6 +153,7 @@ function trelloPlan(doc) {
         key: c.id,
         title: c.name.trim() || `Trello card ${c.id}`,
         description: [str(c.desc).trim(), `Imported from Trello${c.shortUrl || c.url ? `: ${c.shortUrl || c.url}` : ''}`].filter(Boolean).join('\n\n---\n'),
+        type: 'action',
         status,
         ...(status === 'completed' ? { resolution: 'completed' } : status === 'archived' ? { resolution: 'cancelled' } : {}),
         tags: [...(list?.name ? [list.name] : []), ...tagNames],

@@ -168,7 +168,7 @@ async function fresh(name) {
     outcome: 'Acme has a working engine9 account with its plugins installed and a first nightly sync completed.',
     owner: 'sam@example.com',
     tags: ['onboarding'],
-    readme: "# Spin up client Acme\n\nSet up Acme's engine9 account so their team can start using it on Monday.\n\nThe work is done by tasks run on **engine9/acme** (`https://data.engine9.ai`, account `acme`). Each task is recorded in `tasks/`; its logs stay on engine9 and are found again with the run ids in its `task.json`.\n",
+    readme: "# Spin up client Acme\n\nSet up Acme's engine9 account so their team can start using it on Monday.\n\nThe work is done by tasks run on **engine9/acme** (`https://data.engine9.ai`, account `acme`). Each task is recorded in `tasks/`; its logs stay on engine9 and are found again with the run ids in its `task.json`.\n\n## Checklist\n\n- [x] Confirm the go-live date with Acme\n- [ ] Send Acme the sign-in link\n- [ ] Book the training call\n",
     now,
     actor: sam,
   });

@@ -32,6 +32,7 @@ const USAGE = `folio: work with folio folders
   folio repo add <dir> <owner/name | url> [--purpose "..."] [--role primary]
   folio repo list <dir>
   folio search <dir> <text>
+  folio checklist <dir> [--add "text"] [--check N] [--uncheck N] [--remove N]   the README's checklist (SPEC 5.9)
   folio task list <dir>                                the folio's tasks: well-defined work run elsewhere (SPEC 5.8)
   folio task add <dir> --env engine9/acme (--path <plugin path> --method <m> | --flow <flow_id>) [--title ...]
       [--options '{"k":"v"}'] [--within <minutes>] [--flow-run <id>] [--task-run <id>] [--state PENDING]
@@ -146,6 +147,13 @@ async function main() {
     }
   }
 
+  if (cmd === 'checklist') {
+    const changes = {};
+    for (const k of ['add', 'check', 'uncheck', 'remove']) if (flags[k] !== undefined) changes[k] = [String(flags[k])];
+    const c = Object.keys(changes).length ? await folio.editChecklist(changes) : await folio.checklist();
+    for (const i of c.items) console.log(`${String(i.n).padStart(2)}. [${i.done ? 'x' : ' '}] ${i.text}`);
+    return out(c.total ? `${c.done}/${c.total} done` : 'No checklist yet. Add one with --add "text".');
+  }
   if (cmd === 'task') {
     const [sub, ...a] = args;
     const json = (v, what) => {
