@@ -11,21 +11,21 @@ const make = async () => {
 };
 
 test('parseCc reads emails, Slack channels and people, phone numbers and other channels', () => {
-  assert.deepEqual(parseCc('Tim Thornburg <Tim@Pursuant.com>'), { name: 'Tim Thornburg', channel: 'email', address: 'tim@pursuant.com', kind: 'person' });
-  assert.deepEqual(parseCc('mailto:joe@pursuant.com'), { channel: 'email', address: 'joe@pursuant.com', kind: 'person' });
-  assert.deepEqual(parseCc('#Acme-Support'), { channel: 'slack', address: '#acme-support', kind: 'channel' });
-  assert.deepEqual(parseCc('slack:C0123ABCD'), { channel: 'slack', address: 'C0123ABCD', kind: 'channel' });
-  assert.deepEqual(parseCc('@tim'), { channel: 'slack', address: '@tim', kind: 'person' });
-  assert.deepEqual(parseCc('U0456EFGH', { workspace: 'engine9' }), { channel: 'slack', address: 'U0456EFGH', kind: 'person', workspace: 'engine9' });
-  assert.deepEqual(parseCc('+1 (202) 555-0142'), { channel: 'sms', address: '+12025550142', kind: 'person' });
-  assert.deepEqual(parseCc('tel:+12025550142'), { channel: 'sms', address: '+12025550142', kind: 'person' });
-  assert.deepEqual(parseCc('teams:Support Channel', { kind: 'channel' }), { channel: 'teams', address: 'Support Channel', kind: 'channel' });
+  assert.deepEqual(parseCc('Tim Thornburg <Tim@Pursuant.com>'), { name: 'Tim Thornburg', channel: 'email', address: 'tim@pursuant.com', kind: 'person', audience: 'client' });
+  assert.deepEqual(parseCc('mailto:joe@pursuant.com'), { channel: 'email', address: 'joe@pursuant.com', kind: 'person', audience: 'client' });
+  assert.deepEqual(parseCc('#Acme-Support'), { channel: 'slack', address: '#acme-support', kind: 'channel', audience: 'client' });
+  assert.deepEqual(parseCc('slack:C0123ABCD'), { channel: 'slack', address: 'C0123ABCD', kind: 'channel', audience: 'client' });
+  assert.deepEqual(parseCc('@tim'), { channel: 'slack', address: '@tim', kind: 'person', audience: 'client' });
+  assert.deepEqual(parseCc('U0456EFGH', { workspace: 'engine9' }), { channel: 'slack', address: 'U0456EFGH', kind: 'person', workspace: 'engine9', audience: 'client' });
+  assert.deepEqual(parseCc('+1 (202) 555-0142'), { channel: 'sms', address: '+12025550142', kind: 'person', audience: 'client' });
+  assert.deepEqual(parseCc('tel:+12025550142'), { channel: 'sms', address: '+12025550142', kind: 'person', audience: 'client' });
+  assert.deepEqual(parseCc('teams:Support Channel', { kind: 'channel' }), { channel: 'teams', address: 'Support Channel', kind: 'channel', audience: 'client' });
   assert.throws(() => parseCc('not an address'), ValidationError);
   assert.throws(() => parseCc(''), ValidationError);
   assert.throws(() => parseCc('x', { channel: 'email' }), ValidationError);
-  assert.deepEqual(parseCc('fbcenc', { channel: 'slack' }), { channel: 'slack', address: 'fbcenc', kind: 'person' });
-  assert.deepEqual(parseCc('#fbcenc', { channel: 'slack' }), { channel: 'slack', address: '#fbcenc', kind: 'channel' });
-  assert.deepEqual(parseCc('202 555 0142', { channel: 'sms' }), { channel: 'sms', address: '2025550142', kind: 'person' });
+  assert.deepEqual(parseCc('fbcenc', { channel: 'slack' }), { channel: 'slack', address: 'fbcenc', kind: 'person', audience: 'client' });
+  assert.deepEqual(parseCc('#fbcenc', { channel: 'slack' }), { channel: 'slack', address: '#fbcenc', kind: 'channel', audience: 'client' });
+  assert.deepEqual(parseCc('202 555 0142', { channel: 'sms' }), { channel: 'sms', address: '2025550142', kind: 'person', audience: 'client' });
 });
 
 test('a folio keeps its own CC list in folio.json; adding twice does not duplicate, and every change is recorded', async () => {
@@ -120,14 +120,83 @@ test('validation reports a malformed or duplicated CC list', async () => {
   assert.equal(findCc(m.cc, { type: 'email', channel: 'email', id: 'a@b.co' }).address, 'a@b.co');
 });
 
-test('internal notes are stored as such and are not news for CCs', async () => {
+test('CCs are on the team or the client list; client is the default and entries move between them', async () => {
+  const { fs, folio } = await make();
+  await folio.addCc('Tim Thornburg <tim@pursuant.com>', { actor });
+  await folio.addCc('#fbcenc-staff', { actor, audience: 'team' });
+  assert.deepEqual((await folio.ccs()).map((c) => [c.key, c.audience]), [['email:tim@pursuant.com', 'client'], ['slack:#fbcenc-staff', 'team']]);
+  // Re-adding without an audience keeps the one it has; asking for one moves it.
+  await folio.addCc('#fbcenc-staff', { actor });
+  assert.equal((await folio.ccs())[1].audience, 'team');
+  await folio.addCc('tim@pursuant.com', { actor, audience: 'team' });
+  assert.equal((await folio.ccs())[0].audience, 'team');
+  await folio.setCcAudience('email:tim@pursuant.com', 'client', { actor });
+  await folio.setCcAudience('#FBCENC-staff', 'team', { actor });
+  assert.deepEqual((await folio.ccs()).map((c) => c.audience), ['client', 'team']);
+  await assert.rejects(folio.setCcAudience('email:tim@pursuant.com', 'everyone'), ValidationError);
+  await assert.rejects(folio.setCcAudience('nobody@x.com', 'team'), NotFoundError);
+  assert.throws(() => parseCc('a@b.co', { audience: 'boss' }), ValidationError);
+  assert.equal((await validateFolio(fs)).ok, true);
+});
+
+test('messages are for the team unless sent to chosen client contacts, and record exactly who they went to', async () => {
   const { folio } = await make();
+  await folio.addCc('Tim Thornburg <tim@pursuant.com>', { actor });
+  await folio.addCc('Joe <joe@pursuant.com>', { actor });
+  await folio.addCc('#staff', { actor, audience: 'team' });
   const seen = [];
   folio.onMessage = async (m) => seen.push(m);
-  await folio.comment('Team only: they are on the old feed.', { actor, internal: true });
-  await folio.comment('Hi Tim, report attached.', { actor });
-  assert.deepEqual(seen.map((m) => m.internal === true), [true, false]);
-  const said = await folio.comms({ cc: [] });
-  assert.equal(said.find((m) => m.text.startsWith('Team only')).internal, true);
-  assert.equal(said.find((m) => m.text.startsWith('Hi Tim')).internal, undefined);
+  await folio.comment('Team only: they are on the old feed.', { actor });
+  await folio.comment('Hi both, we are on it.', { actor, to: 'client' });
+  await folio.comment('Tim, report attached.', { actor, to: ['tim@pursuant.com'] });
+  assert.deepEqual(seen.map((m) => m.to || null), [null, ['email:tim@pursuant.com', 'email:joe@pursuant.com'], ['email:tim@pursuant.com']]);
+  await assert.rejects(folio.comment('x', { actor, to: ['slack:#staff'] }), /team list/);
+  await assert.rejects(folio.comment('x', { actor, to: ['zed@x.com'] }), /not a client contact/);
+  await assert.rejects(folio.comment('x', { actor, to: [] }), ValidationError);
+  const said = await folio.comms();
+  const by = Object.fromEntries(said.map((m) => [m.text.split(' ')[0], m]));
+  assert.deepEqual([by['Team'].thread, by['Team'].direction], ['team', undefined]);
+  assert.deepEqual([by['Hi'].thread, by['Hi'].direction], ['client', 'out']);
+  assert.deepEqual(by['Tim,'].to, ['email:tim@pursuant.com']);
+});
+
+test('the client thread interleaves with the team’s and keeps its own timing', async () => {
+  const fs = new MemoryFs();
+  let t = '2026-11-09T09:00:00.000Z';
+  const folio = await Folio.init(fs, { title: 'Donate button broken', now: () => t, actor });
+  await folio.addCc('Tim Thornburg <tim@pursuant.com>', { actor });
+  await folio.addCc('#staff', { actor, audience: 'team' });
+  const eml = (h, body) => `From: Tim Thornburg <tim@pursuant.com>\r\nTo: support@frakture.com\r\nSubject: Donate button broken\r\nDate: ${h}\r\nMessage-ID: <${body.length}@p.com>\r\n\r\n${body}\r\n`;
+  await folio.add({ name: 'a.eml', type: 'message/rfc822', data: eml('Mon, 09 Nov 2026 09:00:00 +0000', 'The donate button is broken.') }, { actor });
+  assert.deepEqual(await folio.clientThread(), { waiting: 'us', since: '2026-11-09T09:00:00.000Z', first_in: '2026-11-09T09:00:00.000Z', first_reply: null, last_in: '2026-11-09T09:00:00.000Z', last_out: null, unanswered: 1, sent: 0, received: 1 });
+  t = '2026-11-09T09:05:00.000Z';
+  await folio.comment('Got it, looking now.', { actor, to: 'client' });
+  t = '2026-11-09T10:00:00.000Z';
+  await folio.comment('Regex lookbehind again?', { actor });
+  await folio.receive({ channel: 'slack', address: '#staff' }, 'Yes, Safari.', { at: '2026-11-09T10:10:00.000Z' });
+  await folio.add({ name: 'b.eml', type: 'message/rfc822', data: eml('Mon, 09 Nov 2026 11:00:00 +0000', 'Any news? Still broken.') }, { actor });
+  const said = await folio.comms();
+  assert.deepEqual(said.map((m) => `${m.thread}${m.direction ? `/${m.direction}` : ''}`), ['client/in', 'client/out', 'team', 'team', 'client/in']);
+  const ct = await folio.clientThread();
+  assert.equal(ct.waiting, 'us');
+  assert.equal(ct.since, '2026-11-09T11:00:00.000Z');
+  assert.equal(ct.first_reply, '2026-11-09T09:05:00.000Z');
+  t = '2026-11-09T12:00:00.000Z';
+  await folio.comment('Fixed: the regex is gone. Summary: …', { actor, to: 'client' });
+  const done = await folio.clientThread();
+  assert.deepEqual([done.waiting, done.since, done.sent, done.received, done.unanswered], ['client', '2026-11-09T12:00:00.000Z', 2, 2, 0]);
+
+  // An email from someone on the team is not the client talking.
+  const staff = 'From: Pat <pat@frakture.com>\r\nTo: support@frakture.com\r\nSubject: fyi\r\nDate: Mon, 09 Nov 2026 13:00:00 +0000\r\nMessage-ID: <s@f.com>\r\n\r\nInternal fyi\r\n';
+  await folio.add({ name: 'c.eml', type: 'message/rfc822', data: staff }, { actor });
+  const isTeam = (channel, address) => channel === 'email' && address.endsWith('@frakture.com');
+  assert.equal((await folio.comms({ team: isTeam })).pop().thread, 'team');
+  assert.equal((await folio.clientThread({ team: isTeam })).waiting, 'client');
+  assert.equal((await folio.clientThread()).waiting, 'us', 'without the team rule, an unknown sender counts as the client');
+});
+
+test('a folio with no client conversation has no client thread', async () => {
+  const { folio } = await make();
+  await folio.comment('Just us.', { actor });
+  assert.equal(await folio.clientThread(), null);
 });

@@ -3,8 +3,8 @@ export { DONE_STATUSES, FOLIO_TYPES, READINESS_STATES, RELATIONSHIP_TYPES, findC
 export { INTAKE_AS, INTAKE_KINDS, classify, intakeChoices, repositoryFromUrl, safeName, slugify, urlsIn } from './intake.js';
 export { TEXT_FORMATS, detectTextFormat, htmlToText, textFormatOf, titleOfText } from './text-format.js';
 export { IMPORTERS, IMPORT_FORMATS, MAX_IMPORT_ITEMS, detectImport, parseJsonText, planImport } from './import.js';
-export { CC_CHANNELS, CC_CHANNEL_LABELS, CC_KINDS, MAX_CC, authorChannel, ccAuthor, ccChannelLabel, ccKey, findCc, normalizeCc, parseCc, validateCc } from './cc.js';
-export { COMMS_DIR, COMMS_KINDS, MESSAGE_KINDS, commsKindOf, isEmailPath } from './comms.js';
+export { CC_AUDIENCES, CC_AUDIENCE_LABELS, CC_CHANNELS, CC_CHANNEL_LABELS, CC_KINDS, MAX_CC, authorChannel, ccAudience, ccAuthor, ccChannelLabel, ccKey, findCc, normalizeCc, parseCc, validateCc } from './cc.js';
+export { COMMS_DIR, COMMS_KINDS, MESSAGE_KINDS, clientThread, commsKindOf, isEmailPath } from './comms.js';
 export { ExcludingFs, RESERVED_DIRS, canHoldFolio, nestedFolioDirs } from './nested.js';
 export { decodeEncodedWords, emailAddress, emailAttachments, looksLikeEmail, parseEmail, parseEmailHeaders } from './email.js';
 export { KEEP_LIMITS, SUMMARY_KIND, dataFormat, keepInFolio, parseDelimited, summarizeData } from './data.js';

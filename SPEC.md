@@ -3,6 +3,8 @@
 
 > **Status.** This is the working specification as finalised in the 2 November 2026 product conversation. It supersedes the earlier draft. It remains a living document: where a decision here conflicts with an earlier idea, this document wins. Scope for the first release is in [section 19](#19-version-1-scope-and-deferred-work).
 >
+> **Changes on 11 November 2026 (team and client):** a folio's CC list has **two buckets** (5.7). The **team** (staff, closely integrated partners) hears everything said in the folio, internal notes included; the **client** hears only messages deliberately sent to them, and a message records exactly which client contacts it went to (`to`). A CC is a client unless put on the team. What was sent to the client and what came back from them form the **client thread**, interleaved with the team's conversation but with its own timing: who is waiting on whom, and since when (3.1.2, 5.7.1). `internal` on messages is replaced by `to`.
+>
 > **Changes on 10 November 2026:** **work is only folios**: work is folios inside folios (**sub-folios**). `ticket` is an ordinary type, nothing special; a sub-folio has no type unless given one. Support for layouts from before 1.0 (`upgradeLayout`, `sources/email/`, `sources/uploads/`) is removed; there are no such folios. On a folio's page the folios inside it are listed in the side column (13.2). **Priority is removed** as a concept. Urgency is in the eye of the beholder; status, target dates, blockers and tags carry what a team needs. A `priority` field written by hand is kept untouched as an unknown field (3.4); Folio does not read, set, validate or show it, and imports do not derive one.
 >
 > **Changes on 9 November 2026 (CC):** every folio keeps its own **CC list** of people and channels kept informed: email addresses, Slack channels and people, phone numbers for SMS, or any other channel (5.7). The list lives in `folio.json`; **delivering** to it is an optional add-on of each hosting deployment, configured there and never in the folio. A message that comes back from a CC is credited to that person or channel (3.1.2).
@@ -170,7 +172,7 @@ The directory layout is a convention rather than a rigid empty scaffold. Only `f
 | `*.chat.json` | A captured chat thread (Slack and the like) |
 | `*.summary.md` | A summary that stands in for the messages before its date |
 
-A message file is JSON: `{ "at", "kind", "author": { "type", "id", "name"?, "on_behalf_of"?, "channel"?, "workspace"? }, "via", "text", "attachments"?: [paths], "imported"?, "ref"? }`. A message that came in over a channel from one of the folio's CCs (5.7) is credited to it: `author` is `{ "type": "person" | "channel", "channel", "id": <its address>, "name"? }`, and `ref` is the channel's own id for the message (`{ channel, id }`), so a second delivery is not stored twice. `"internal": true` marks an **internal note**: it stays in the folio and is never passed on to the folio's CCs (5.7). Messages are written once and never edited, so they need no locking and never conflict with edits to `folio.json`.
+A message file is JSON: `{ "at", "kind", "author": { "type", "id", "name"?, "on_behalf_of"?, "channel"?, "workspace"? }, "via", "text", "attachments"?: [paths], "imported"?, "ref"? }`. A message that came in over a channel from one of the folio's CCs (5.7) is credited to it: `author` is `{ "type": "person" | "channel", "channel", "id": <its address>, "name"? }`, and `ref` is the channel's own id for the message (`{ channel, id }`), so a second delivery is not stored twice. A message without `to` is for the **team**: everyone with access, and the CCs on the team list. `"to": ["email:tim@pursuant.com", …]` makes it a message **to the client**: sent to exactly those client CCs (keys as in 5.7), and seen by the team as always. Readers tag each item with its thread (`team` or `client`) and each client item with its direction (`in` from the client, `out` to them); see 5.7.1. Messages are written once and never edited, so they need no locking and never conflict with edits to `folio.json`.
 
 **Files are assets and live apart**, in `attachments/`; a message refers to them by path. Keeping the conversation in one folder of small files makes it easy to read, search, summarise and compress (older messages can be replaced by a `*.summary.md`), without visiting a folder per kind of message.
 
@@ -451,17 +453,35 @@ It is stored in `folio.json`:
 
 ```json
 "cc": [
-  { "channel": "email", "address": "tim@pursuant.com", "name": "Tim Thornburg", "kind": "person", "added_at": "…", "added_by": "chris@frakture.com" },
-  { "channel": "slack", "address": "#fbcenc", "workspace": "pursuant", "kind": "channel" },
-  { "channel": "sms", "address": "+12025550142", "name": "Joe McLaughlin", "kind": "person" }
+  { "channel": "email", "address": "tim@pursuant.com", "name": "Tim Thornburg", "kind": "person", "audience": "client", "added_at": "…", "added_by": "chris@frakture.com" },
+  { "channel": "slack", "address": "#fbcenc-staff", "workspace": "frakture", "kind": "channel", "audience": "team" },
+  { "channel": "sms", "address": "+12025550142", "name": "Joe McLaughlin", "kind": "person", "audience": "client" }
 ]
 ```
 
+**Two buckets.** Each entry's `audience` puts it on one of two lists:
+
+| Audience | Who | Hears |
+|---|---|---|
+| `team` | Staff, and partners integrated closely enough to see the working conversation | **Everything**: internal notes, agents' reports, what was sent to the client, the client's replies |
+| `client` | The client and other outside contacts | **Only messages deliberately sent to them** (a message's `to`) |
+
+An entry without `audience` is a **client**: the safe side, because telling a client something by accident is worse than a teammate missing a note. Hosts may default people on their own staff domains to the team (folio-server: `TEAM_DOMAINS`). `folio.setCcAudience(key, 'team' | 'client')` moves an entry; `addCc(…, { audience })` changes it when asked for, and never otherwise.
+
 - **Per folio.** A folio inside another has its own list; nothing is inherited. Adding or removing a CC is a change to `folio.json` and recorded like any other (5.4). `folio.addCc()`, `removeCc()` and `ccs()` manage it; duplicates (same channel and address, ignoring case) are not added twice.
 - **A reference, not a connection.** Like a repository listing (3.2.1), a CC list works with no integration, and nothing in the folio sends anything. **Delivery is an optional add-on of each hosting deployment**, configured on the host, never in the folio (3.5, 10.3): a copied folio keeps its CC list without gaining the ability to message anyone. Hosts show each entry's live state (delivered on this deployment, or listed only); in the portable library every entry reads as `reference_only`.
-- **What a host passes on.** When delivery is set up, each new message in `comms/` (comments, updates, agents' reports, emails filed there) is passed to the add-on with the folio's CC list, leaving out the CC the message came from. Imported history and internal notes are not passed on.
-- **Internal notes by default.** Writing to CCs by accident is embarrassing, and most messages are for the team. On a folio with CCs, a host's composer starts on **Internal note** and needs a deliberate choice of **Reply to CCs**; agents' messages are internal unless they say otherwise. Internal notes are marked as such in the conversation.
-- **Replies are credited.** A message that comes back from a CC (a Slack reply, an SMS, an email from a CC'd address) is posted to `comms/` credited to that person or channel (3.1.2) via `folio.receive()`. Only listed CCs may post this way. In the conversation, messages from CCs are marked with the CC they came from.
+- **What a host passes on.** When delivery is set up, each new message in `comms/` (comments, updates, agents' reports, emails filed there) goes to the folio's **team** CCs, and a message with `to` also goes to exactly those **client** CCs; the CC a message came from never gets its own message back. Imported history is not passed on.
+- **Internal by default; the client is a deliberate choice.** Most messages are for the team, and writing to a client by accident is embarrassing. A host's composer starts on **Internal note**; **Message client** is a deliberate second choice that names each client contact (all ticked, any can be unticked), and the button names who will get it. Agents' messages are for the team unless they are told to send to the client.
+- **Replies are credited.** A message that comes back from a CC (a Slack reply, an SMS, an email from a CC'd address) is posted to `comms/` credited to that person or channel (3.1.2) via `folio.receive()`. Only listed CCs may post this way. A reply from a team CC is part of the team's conversation; a reply from a client CC is part of the client thread.
+
+#### 5.7.1 The client thread and its timing
+
+The common case: a request comes in from a client; someone acknowledges it at once; staff are assigned, work it and talk among themselves; the client gets an update now and then; and finally a **solved** message with a summary. The client's experience is the client thread, and its timing matters: a client must not wait too long.
+
+- **What is in it.** Messages sent to the client (`to`): direction `out`. Messages and emails from a client CC, and emails from anyone not on the team (the request that started it, a forwarded complaint): direction `in`. Hosts may say who else counts as the team (staff domains) so their emails are not taken for the client's.
+- **One conversation.** The client thread is not a separate place: it is interleaved with the team's messages in time order, so the people working the folio always see what the client has been told. Pages mark client messages clearly ("To Tim, Joe", "From Tim") and may filter to the client thread alone.
+- **Timing** (`clientThread(items)`, `folio.clientThread()`): `waiting` is `us` when the client's latest message is unanswered (since the first unanswered one) and `client` when the last word was ours (since then); plus `first_in`, `first_reply` (first response time), `last_in`, `last_out`, `unanswered`, `sent` and `received`. Hosts show it on the folio and its card, against a reply target they configure; a folio that is done needs no reply.
+- **Closing.** Sending the summary to the client and setting the status are one step in a host's composer ("Send and mark Done").
 - CC addresses are client and account contacts (3.7(3)); they are not secrets, and no credential or token for a channel belongs in the list.
 
 ---
@@ -790,7 +810,7 @@ A folio opens as itself, like a case in a help desk or a task in Asana, not as a
 - Title, state (with the reason when it is blocked, waiting or a draft) and Mark Done.
 - Description and files (attachments and notes).
 - The whole conversation from `comms/` (emails, comments, updates, agents' reports) in time order, with a composer that takes text and files.
-- A side column: the folios inside it (sub-folios), with a one-line add; details: status, type, owner, target date, tags, what it waits on, **CC** (people and channels, each showing whether this deployment delivers to it), its email address, repositories, recent changes and sharing.
+- A side column: the folios inside it (sub-folios), with a one-line add; details: status, type, owner, target date, tags, what it waits on, **CC** in its two lists, **Team** and **Client** (people and channels, each showing whether this deployment delivers to it, and movable between the lists), its email address, repositories, recent changes and sharing.
 
 Everything is edited in place, and anything dropped on the page is added to the folio. Folios inside a folio are secondary: they show within it, not alongside it in lists of folios or on its folder's board (its card counts them). For a small folio this page should feel simple rather than empty; for a larger one it should offer a concise route to the detail without becoming a dashboard requiring constant maintenance.
 

@@ -1,7 +1,7 @@
 import { ValidationError } from './errors.js';
 import { parseEmail } from './email.js';
 import { scrubText } from './privacy.js';
-import { authorChannel, ccKey, findCc } from './cc.js';
+import { authorChannel, ccAudience, ccKey, findCc } from './cc.js';
 
 /**
  * Communications: every piece of back-and-forth about the work lives in ONE folder, `comms/`, whatever it is.
@@ -22,9 +22,15 @@ import { authorChannel, ccKey, findCc } from './cc.js';
  *   { "at", "kind", "author": { type, id, name?, on_behalf_of?, channel?, workspace? }, "via", "text",
  *     "attachments"?: [paths], "imported"?: { source, author, at }, "ref"?: { channel, id } }
  *
- * `internal: true` marks an internal note: it stays in the folio and is never passed on to the folio's CCs.
- * `author.channel` says the message came in over a channel (a Slack reply, an SMS) from one of the folio's CCs
- * (cc.js); `ref` is that channel's own id for the message, so a second delivery of it is not stored twice.
+ * Two audiences (cc.js). A message with no `to` is for the team: everyone who can open the folio, and the CCs on
+ * its team list. `to: [cc keys]` makes it a message to the client: sent to exactly those client CCs (and seen by
+ * the team as always). `author.channel` says the message came in over a channel (a Slack reply, an SMS) from one
+ * of the folio's CCs; `ref` is that channel's own id for the message, so a second delivery is not stored twice.
+ *
+ * The client thread: what was sent to the client (`to`), and what came from them (a message or email from a
+ * client CC, or an email from anyone not on the team). readComms tags each item `thread: "team" | "client"` and
+ * client items `direction: "in" | "out"`, so a page can show one interleaved conversation and still pick out what
+ * the client has seen; clientThread() reads the timing from it (who is waiting on whom, and since when).
  */
 
 export const COMMS_DIR = 'comms';
@@ -68,9 +74,10 @@ export function messageName(at, text, kind) {
  * Write a message to comms/. Text is scrubbed of card numbers and credentials (spec 3.7). Returns
  * { path, message, removed? }.
  */
-export async function postMessage(folio, { kind = 'comment', text, attachments = [], actor, via = 'folio-lib', at = null, imported = null, ref = null, internal = false }) {
+export async function postMessage(folio, { kind = 'comment', text, attachments = [], actor, via = 'folio-lib', at = null, imported = null, ref = null, to = null }) {
   if (!MESSAGE_KINDS.includes(kind)) throw new ValidationError(`A message is one of ${MESSAGE_KINDS.join(', ')}`);
   if (!text || !String(text).trim()) throw new ValidationError('A message cannot be empty');
+  if (to !== null && (!Array.isArray(to) || !to.length || to.some((k) => typeof k !== 'string' || !k))) throw new ValidationError('`to` lists the keys of the client CCs a message goes to');
   const { text: clean, removed, total } = scrubText(String(text));
   const when = at || folio.now();
   const message = {
@@ -82,7 +89,7 @@ export async function postMessage(folio, { kind = 'comment', text, attachments =
     ...(attachments.length ? { attachments } : {}),
     ...(imported ? { imported } : {}),
     ...(ref ? { ref } : {}),
-    ...(internal ? { internal: true } : {}),
+    ...(to ? { to: [...new Set(to)] } : {}),
   };
   let name = messageName(when, clean, kind);
   if (ref) {
@@ -117,10 +124,13 @@ export const isEmailPath = (p) => EMAIL_FILE.test(p) && p.startsWith(`${COMMS_DI
 
 /**
  * The conversation, newest last: every message and email in comms/. Each item:
- *   { kind, path, at, author, text, subject?, from?, to?, truncated? }
- * `cc` (the folio's CC list) marks messages that came from a CC with `cc: <its key>`. `limit` keeps the newest.
+ *   { kind, path, at, author, text, thread: "team" | "client", direction?: "in" | "out", to?, subject?, from?, truncated? }
+ * For a message, `to` is the client CCs it was sent to (keys); for an email, the To header (`to_header`).
+ * `cc` (the folio's CC list) marks messages that came from a CC with `cc: <its key>`. `team(channel, address)`, if
+ * given, says whether a sender not on the CC list is on the team (staff email domains, say); otherwise only team
+ * CCs and members posting in the folio count as the team. `limit` keeps the newest.
  */
-export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc = [] } = {}) {
+export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc = [], team = null } = {}) {
   const fs = folio.fs;
   const paths = (await fs.list(COMMS_DIR)).filter((p) => commsKindOf(p) && !p.slice(COMMS_DIR.length + 1).includes('/'));
   const files = await read(paths, (p) => (/\.msg$/i.test(p) ? null : fs.read(p)));
@@ -132,7 +142,7 @@ export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc 
       const parsed = cur ? parseEmail(cur.text) : null;
       const text = parsed?.text || '';
       const h = parsed?.headers || {};
-      items.push({ kind, path, at: isoOf(h.date) || dateFromName(path), author: { type: 'email', id: h.from || null }, from: h.from || null, to: h.to || null, subject: h.subject || null, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}) });
+      items.push({ kind, path, at: isoOf(h.date) || dateFromName(path), author: { type: 'email', id: h.from || null }, from: h.from || null, to_header: h.to || null, subject: h.subject || null, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}) });
       continue;
     }
     if (!cur) continue;
@@ -147,7 +157,7 @@ export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc 
       continue;
     }
     const text = String(m.text || '');
-    items.push({ kind, path, at: m.at || dateFromName(path), author: m.author || { type: 'unknown' }, via: m.via, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(m.attachments ? { attachments: m.attachments } : {}), ...(m.internal === true ? { internal: true } : {}), ...(m.imported ? { imported: m.imported } : {}) });
+    items.push({ kind, path, at: m.at || dateFromName(path), author: m.author || { type: 'unknown' }, via: m.via, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(m.attachments ? { attachments: m.attachments } : {}), ...(Array.isArray(m.to) && m.to.length ? { to: m.to.map(String) } : {}), ...(m.imported ? { imported: m.imported } : {}) });
   }
   // Credit messages from the folio's CCs: an email from a CC'd address, a reply from a CC'd Slack channel.
   if (cc.length)
@@ -159,8 +169,63 @@ export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc 
         if (hit.name && !it.author.name) it.author = { ...it.author, name: hit.name };
       }
     }
+  for (const it of items) Object.assign(it, threadOf(it, cc, team));
   items.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')) || a.path.localeCompare(b.path));
   return limit && items.length > limit ? items.slice(-limit) : items;
+}
+
+/**
+ * Which thread an item is in. Sent to client CCs: client, out. From a client CC: client, in. An email from anyone
+ * not on the team: client, in (the ticket that started it, a forwarded complaint). Everything else: team.
+ */
+function threadOf(it, cc, team) {
+  if (Array.isArray(it.to) && it.to.length) return { thread: 'client', direction: 'out' };
+  if (it.kind === 'summary') return { thread: 'team' };
+  const hit = it.cc ? cc.find((c) => ccKey(c) === it.cc) : null;
+  if (hit) return ccAudience(hit) === 'team' ? { thread: 'team' } : { thread: 'client', direction: 'in' };
+  if (it.kind === 'email') {
+    const from = authorChannel({ type: 'email', id: it.from });
+    return from && team?.(from.channel, from.address) ? { thread: 'team' } : { thread: 'client', direction: 'in' };
+  }
+  return { thread: 'team' };
+}
+
+/**
+ * The timing of the client thread, from readComms' items (oldest first), or null when there is none:
+ *   { waiting: "us" | "client", since,          who is waiting, and since when: "us" since the first client message
+ *                                               not yet answered, "client" since the last thing sent to them
+ *     first_in, first_reply, last_in, last_out, the first client message, the first answer after it, the latest each way
+ *     unanswered,                               client messages since the last thing sent to them
+ *     sent, received }                          counts each way
+ */
+export function clientThread(items) {
+  const client = (items || []).filter((m) => m.thread === 'client' && m.at);
+  if (!client.length) return null;
+  let first_in = null;
+  let first_reply = null;
+  let last_in = null;
+  let last_out = null;
+  let pending = null;
+  let unanswered = 0;
+  let sent = 0;
+  let received = 0;
+  for (const m of client) {
+    if (m.direction === 'out') {
+      sent++;
+      last_out = m.at;
+      if (first_in && !first_reply) first_reply = m.at;
+      pending = null;
+      unanswered = 0;
+    } else {
+      received++;
+      last_in = m.at;
+      if (!first_in) first_in = m.at;
+      if (!pending) pending = m.at;
+      unanswered++;
+    }
+  }
+  const waiting = pending ? 'us' : 'client';
+  return { waiting, since: pending || last_out, first_in, first_reply, last_in, last_out, unanswered, sent, received };
 }
 
 function isoOf(d) {

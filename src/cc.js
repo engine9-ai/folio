@@ -7,10 +7,17 @@ import { emailAddress } from './email.js';
  * channel a deployment knows how to reach. The list is per folio and lives in folio.json `cc`:
  *
  *   "cc": [
- *     { "channel": "email", "address": "tim@pursuant.com", "name": "Tim Thornburg", "kind": "person", "added_at", "added_by" },
- *     { "channel": "slack", "address": "#acme-support", "workspace": "engine9", "kind": "channel" },
- *     { "channel": "sms",   "address": "+12025550142", "name": "Joe McLaughlin", "kind": "person" }
+ *     { "channel": "email", "address": "tim@pursuant.com", "name": "Tim Thornburg", "kind": "person", "audience": "client", "added_at", "added_by" },
+ *     { "channel": "slack", "address": "#acme-support", "workspace": "engine9", "kind": "channel", "audience": "team" },
+ *     { "channel": "sms",   "address": "+12025550142", "name": "Joe McLaughlin", "kind": "person", "audience": "client" }
  *   ]
+ *
+ * Every entry is in one of two buckets, its `audience`:
+ *   team    staff and closely integrated partners: they hear everything said in the folio, internal notes included.
+ *   client  the client and other outside contacts: they hear only messages deliberately sent to them (a message's
+ *           `to`, comms.js), and what they send back forms the folio's client thread, whose timing matters.
+ * An entry without an audience is a client: the safe side, since telling a client something by accident is worse
+ * than a teammate missing a note.
  *
  * The list is a reference, like a repository listing (3.2.1): nothing in the library sends anything. Delivering a
  * message to a CC is an optional add-on of each hosting deployment, configured there and never in the folio, so a
@@ -25,6 +32,10 @@ import { emailAddress } from './email.js';
 /** Channels with built-in parsing. Others are allowed: any lowercase word ("teams", "discord", "whatsapp"). */
 export const CC_CHANNELS = Object.freeze(['email', 'slack', 'sms']);
 export const CC_KINDS = Object.freeze(['person', 'channel']);
+export const CC_AUDIENCES = Object.freeze(['team', 'client']);
+export const CC_AUDIENCE_LABELS = Object.freeze({ team: 'Team', client: 'Client' });
+/** An entry's bucket: "team" or "client" (the default). */
+export const ccAudience = (entry) => (entry?.audience === 'team' ? 'team' : 'client');
 export const CC_CHANNEL_LABELS = Object.freeze({ email: 'Email', slack: 'Slack', sms: 'SMS' });
 const CHANNEL = /^[a-z][a-z0-9_-]{0,23}$/;
 const PHONE = /^\+?[0-9]{7,15}$/;
@@ -98,7 +109,7 @@ export function parseCc(input, opts = {}) {
       throw new ValidationError(`“${s}” is not an email address, a Slack #channel or @person, or a phone number. Prefix it with its channel (slack:, sms:, teams:…) to be explicit.`);
     }
   }
-  for (const k of ['channel', 'name', 'kind', 'workspace']) if (opts[k]) o[k] = opts[k];
+  for (const k of ['channel', 'name', 'kind', 'workspace', 'audience']) if (opts[k]) o[k] = opts[k];
   return normalizeCc(o);
 }
 
@@ -124,6 +135,9 @@ export function normalizeCc(input, { now } = {}) {
   e.address = address;
   if (!e.kind) e.kind = e.channel === 'slack' ? (/^#/.test(address) || /^[CG]/.test(address) ? 'channel' : 'person') : 'person';
   if (!CC_KINDS.includes(e.kind)) throw new ValidationError(`A CC's kind is ${CC_KINDS.join(' or ')}`);
+  if (e.audience === undefined || e.audience === null || e.audience === '') e.audience = 'client';
+  e.audience = String(e.audience).toLowerCase();
+  if (!CC_AUDIENCES.includes(e.audience)) throw new ValidationError(`A CC is on the ${CC_AUDIENCES.join(' or the ')} list`);
   for (const k of ['name', 'workspace']) {
     if (e[k] === undefined || e[k] === null || e[k] === '') delete e[k];
     else e[k] = String(e[k]).trim().slice(0, 120);
@@ -145,6 +159,7 @@ export function validateCc(list) {
       return;
     }
     if (c.kind !== undefined && !CC_KINDS.includes(c.kind)) problems.push({ level: 'error', code: 'cc_kind', path, message: `kind must be ${CC_KINDS.join(' or ')}` });
+    if (c.audience !== undefined && !CC_AUDIENCES.includes(c.audience)) problems.push({ level: 'error', code: 'cc_audience', path, message: `audience must be ${CC_AUDIENCES.join(' or ')}` });
     const key = ccKey(c);
     if (seen.has(key)) problems.push({ level: 'warning', code: 'cc_duplicate', path, message: `${c.channel} ${c.address} is CC'd twice` });
     seen.add(key);

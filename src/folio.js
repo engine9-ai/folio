@@ -10,8 +10,8 @@ import { ExcludingFs, canHoldFolio, nestedFolioDirs } from './nested.js';
 import { SubFs, normalizePath } from './fs.js';
 import { TEXT_FORMATS, textFormatOf } from './text-format.js';
 import { parseJsonText, planImport } from './import.js';
-import { COMMS_DIR, isEmailPath, postMessage, readComms } from './comms.js';
-import { MAX_CC, ccAuthor, ccKey, findCc, normalizeCc, parseCc } from './cc.js';
+import { COMMS_DIR, clientThread, isEmailPath, postMessage, readComms } from './comms.js';
+import { CC_AUDIENCES, MAX_CC, ccAudience, ccAuthor, ccKey, findCc, normalizeCc, parseCc } from './cc.js';
 
 const json = (o) => JSON.stringify(o, null, 2) + '\n';
 const TEXT_EXT = /\.(md|json|txt|eml|csv|html|css|js)$/i;
@@ -20,6 +20,26 @@ const TEXT_EXT = /\.(md|json|txt|eml|csv|html|css|js)$/i;
 export const EDITABLE = ['title', 'summary', 'type', 'status', 'owner', 'target_date', 'tags', 'outcome', 'resolution', 'waiting_on', 'hold', 'links'];
 
 const defaultActor = { type: 'unknown' };
+
+/** What someone typed as a CC, read for matching; null when it is not one. */
+function tryParse(s) {
+  try {
+    return parseCc(s);
+  } catch {
+    return null;
+  }
+}
+
+/** The index of the entry `input` names (a key, an address, or { channel, address }), or -1. */
+function ccIndex(list, input) {
+  if (typeof input === 'string') {
+    const k = list.findIndex((c) => ccKey(c) === input);
+    if (k >= 0) return k;
+  }
+  const want = typeof input === 'string' ? tryParse(input) : input;
+  const hit = want ? findCc(list, want) : null;
+  return hit ? list.indexOf(hit) : -1;
+}
 
 /** Where an imported folio came from: { source, id, url?, ... } with string values, or null. */
 export function externalOf(x) {
@@ -305,27 +325,64 @@ export class Folio {
 
   // ---- the conversation (comms.js) --------------------------------------------
 
-  /** Comment on this folio. Comments are messages in comms/, with everything else said about the work. */
-  async comment(text, { actor = defaultActor, via = 'folio-lib', kind = 'comment', attachments = [], internal = false } = {}) {
+  /**
+   * Comment on this folio. Comments are messages in comms/, with everything else said about the work. Without `to`
+   * a comment is for the team; `to` sends it to the client (see post()).
+   */
+  async comment(text, { actor = defaultActor, via = 'folio-lib', kind = 'comment', attachments = [], to = null } = {}) {
     if (!text || !String(text).trim()) throw new ValidationError('A comment cannot be empty');
-    return postMessage(this, { kind, text, attachments, actor, via, internal });
+    return this.post(kind, text, { attachments, actor, via, to });
   }
 
   /**
-   * Post a message to comms/: a comment, a status update, an agent's report or a captured chat. `internal: true`
-   * makes it an internal note: kept in the folio, never passed on to the folio's CCs (SPEC 5.7).
+   * Post a message to comms/: a comment, a status update, an agent's report or a captured chat. With no `to` it is
+   * for the team: everyone with access and the folio's team CCs, never its client CCs (SPEC 5.7). `to` sends it to
+   * the client: "client" (or true) for every client CC, or a list of CC keys or addresses, each a client CC on
+   * this folio. The message records exactly who it went to.
    */
-  post(kind, text, { attachments = [], actor = defaultActor, via = 'folio-lib', at, internal = false } = {}) {
-    return postMessage(this, { kind, text, attachments, actor, via, at, internal });
+  async post(kind, text, { attachments = [], actor = defaultActor, via = 'folio-lib', at, to = null } = {}) {
+    const keys = to === null || to === undefined || to === false ? null : await this.clientRecipients(to);
+    return postMessage(this, { kind, text, attachments, actor, via, at, to: keys });
+  }
+
+  /** The keys of the client CCs `to` names: "client" or true for all of them, else keys or addresses. */
+  async clientRecipients(to) {
+    const { manifest } = await this.manifest();
+    const clients = (manifest.cc || []).filter((c) => ccAudience(c) === 'client');
+    if (to === true || to === 'client' || to === 'all') {
+      if (!clients.length) throw new ValidationError('Nobody is on this folio’s client list to send to');
+      return clients.map(ccKey);
+    }
+    const want = [].concat(to).filter((x) => x !== null && x !== undefined && x !== '');
+    if (!want.length) throw new ValidationError('Choose at least one client contact to send to');
+    return [
+      ...new Set(
+        want.map((w) => {
+          const hit = clients[ccIndex(clients, w)];
+          if (!hit) {
+            const team = (manifest.cc || []).find((c) => ccKey(c) === w);
+            throw new ValidationError(team ? `${team.name || team.address} is on the team list and hears everything already; only client contacts are chosen` : `${typeof w === 'string' ? w : w.address} is not a client contact on this folio`);
+          }
+          return ccKey(hit);
+        })
+      ),
+    ];
   }
 
   /**
-   * The conversation, oldest first (newest `limit`): messages and emails in comms/.
-   * Messages from the folio's CCs are marked `cc`. Pass `cc` (folio.json's list) to save reading folio.json.
+   * The conversation, oldest first (newest `limit`): messages and emails in comms/, each tagged with its thread
+   * ("team" or "client", and "in" or "out" for the client's). Messages from the folio's CCs are marked `cc`. Pass
+   * `cc` (folio.json's list) to save reading folio.json; `team(channel, address)` to count senders who are not
+   * CC'd (staff domains) as the team.
    */
-  async comms({ limit = 200, maxChars = 4000, cc } = {}) {
+  async comms({ limit = 200, maxChars = 4000, cc, team = null } = {}) {
     const list = cc ?? (await this.manifest().then(({ manifest }) => manifest.cc || [], () => []));
-    return readComms(this, { limit, maxChars, cc: Array.isArray(list) ? list : [], read: (items, fn) => mapLimit(items, READS, fn) });
+    return readComms(this, { limit, maxChars, cc: Array.isArray(list) ? list : [], team, read: (items, fn) => mapLimit(items, READS, fn) });
+  }
+
+  /** The timing of the client thread (comms.js clientThread): who is waiting on whom, and since when; null if none. */
+  async clientThread({ cc, team = null } = {}) {
+    return clientThread(await this.comms({ limit: 0, maxChars: 1, cc, team }));
   }
 
   // ---- CC: people and channels kept informed (cc.js, spec 5.7) ------------------
@@ -333,7 +390,7 @@ export class Folio {
   /** Who is CC'd on this folio: [{ channel, address, kind, name?, workspace?, key, integration_state }]. */
   async ccs() {
     const { manifest } = await this.manifest();
-    return (manifest.cc || []).map((c) => ({ ...c, key: ccKey(c), integration_state: 'reference_only' }));
+    return (manifest.cc || []).map((c) => ({ ...c, audience: ccAudience(c), key: ccKey(c), integration_state: 'reference_only' }));
   }
 
   /**
@@ -348,8 +405,11 @@ export class Folio {
     const key = ccKey(entry);
     const i = list.findIndex((c) => ccKey(c) === key);
     if (i >= 0) {
-      if (!entry.name || entry.name === list[i].name) return { entry: list[i], added: false };
-      const cc = list.map((c, j) => (j === i ? { ...c, name: entry.name } : c));
+      // Already listed: a new name is taken, and a new audience when one was asked for (never the default).
+      const audience = opts.audience || (typeof input === 'object' ? input.audience : null);
+      const change = { ...(entry.name && entry.name !== list[i].name ? { name: entry.name } : {}), ...(audience && audience !== ccAudience(list[i]) ? { audience: entry.audience } : {}) };
+      if (!Object.keys(change).length) return { entry: list[i], added: false };
+      const cc = list.map((c, j) => (j === i ? { ...c, ...change } : c));
       await this.updateManifest({ cc }, { ifMatch: etag, actor, via });
       return { entry: cc[i], added: false };
     }
@@ -357,6 +417,19 @@ export class Folio {
     const added = { ...entry, added_at: this.now(), ...(actor?.id ? { added_by: actor.on_behalf_of || actor.id } : {}) };
     await this.updateManifest({ cc: [...list, added] }, { ifMatch: etag, actor, via });
     return { entry: added, added: true };
+  }
+
+  /** Move a CC between the team and client lists. `input`: a key, or what addCc takes. Returns { entry }. */
+  async setCcAudience(input, audience, { actor = defaultActor, via = 'folio-lib' } = {}) {
+    if (!CC_AUDIENCES.includes(audience)) throw new ValidationError(`A CC is on the ${CC_AUDIENCES.join(' or the ')} list`);
+    const { manifest, etag } = await this.manifest();
+    const list = Array.isArray(manifest.cc) ? manifest.cc : [];
+    const i = ccIndex(list, input);
+    if (i < 0) throw new NotFoundError('That CC');
+    if (list[i].audience === audience) return { entry: list[i] };
+    const cc = list.map((c, j) => (j === i ? { ...c, audience } : c));
+    await this.updateManifest({ cc }, { ifMatch: etag, actor, via });
+    return { entry: cc[i] };
   }
 
   /** Stop CC'ing someone: by key ("slack:#acme"), by what addCc takes, or by { channel, address }. */
@@ -597,7 +670,7 @@ export class Folio {
       ready: kids.filter((c) => c.readiness.ready).map((c) => ({ id: c.id, dir: c.dir, title: c.title, type: c.type, tags: c.tags })),
       tags: [...new Set([...normalizeTags(manifest.tags), ...kids.flatMap((c) => c.tags)])].sort((a, b) => a.localeCompare(b)),
       repositories: (manifest.repositories || []).map(describeRepository),
-      cc: (manifest.cc || []).map((c) => ({ ...c, key: ccKey(c), integration_state: 'reference_only' })),
+      cc: (manifest.cc || []).map((c) => ({ ...c, audience: ccAudience(c), key: ccKey(c), integration_state: 'reference_only' })),
       connections: (manifest.connections || []).map((c) => ({ ...c, integration_state: 'reference_only' })),
     };
   }
