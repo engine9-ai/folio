@@ -10,7 +10,7 @@ import { ExcludingFs, canHoldFolio, nestedFolioDirs } from './nested.js';
 import { SubFs, normalizePath } from './fs.js';
 import { TEXT_FORMATS, textFormatOf } from './text-format.js';
 import { parseJsonText, planImport } from './import.js';
-import { COMMS_DIR, clientThread, isEmailPath, postMessage, readComms } from './comms.js';
+import { COMMS_DIR, clientThread, isEmailPath, postMessage, readComms, setHiddenFromClient } from './comms.js';
 import { TASKS_DIR, TASK_FILE, TASK_OUTPUT_FILE, applyTaskUpdate, createTaskRecord, environmentLabel, isTaskId, isTerminalState, taskDirName, taskOutputText, taskStateLabel, taskSummary, taskTarget } from './tasks.js';
 import { CHECKLIST_FILE, checklistCounts, editChecklistText, findItem, parseChecklist } from './checklist.js';
 import { CC_AUDIENCES, MAX_CC, ccAudience, ccAuthor, ccKey, findCc, normalizeCc, parseCc } from './cc.js';
@@ -381,9 +381,27 @@ export class Folio {
    * `cc` (folio.json's list) to save reading folio.json; `team(channel, address)` to count senders who are not
    * CC'd (staff domains) as the team.
    */
-  async comms({ limit = 200, maxChars = 4000, cc, team = null } = {}) {
+  async comms({ limit = 200, maxChars = 4000, cc, team = null, clean = false } = {}) {
     const list = cc ?? (await this.manifest().then(({ manifest }) => manifest.cc || [], () => []));
-    return readComms(this, { limit, maxChars, cc: Array.isArray(list) ? list : [], team, read: (items, fn) => mapLimit(items, READS, fn) });
+    return readComms(this, { limit, maxChars, cc: Array.isArray(list) ? list : [], team, clean, read: (items, fn) => mapLimit(items, READS, fn) });
+  }
+
+  /**
+   * What a client may see of the conversation (SPEC 5.7.2): the client thread (messages sent to the client, and
+   * what came from them), without anything kept from the client. Each item carries only what a client page needs;
+   * the team's notes, agents' reports and who on the team is CC'd never appear. `clean` drops quoted history and
+   * signatures from emails.
+   */
+  async clientComms({ cc, team = null, clean = true, maxChars = 8000 } = {}) {
+    const items = await this.comms({ limit: 0, maxChars, cc, team, clean });
+    return items
+      .filter((m) => m.thread === 'client' && !m.hidden_from_client)
+      .map((m) => ({ path: m.path, at: m.at, kind: m.kind === 'email' ? 'email' : 'message', direction: m.direction, from: m.direction === 'in' ? clientName(m) : null, to: m.direction === 'out' ? m.to || [] : null, subject: m.subject || null, text: m.text, ...(m.truncated ? { truncated: true } : {}), attachments: m.kind === 'email' ? [] : (m.attachments || []).map(String) }));
+  }
+
+  /** Keep a message or email in comms/ from the client, or show it again (SPEC 5.7.2). */
+  hideFromClient(path, hidden = true, { actor = defaultActor } = {}) {
+    return setHiddenFromClient(this, path, hidden, { actor });
   }
 
   /** The timing of the client thread (comms.js clientThread): who is waiting on whom, and since when; null if none. */
@@ -883,6 +901,16 @@ export class Folio {
   validate() {
     return validateFolio(this.fs);
   }
+}
+
+/** Who a client-thread message came from, as a client page shows it: a name, else the address. */
+function clientName(m) {
+  if (m.kind === 'email') {
+    const raw = m.forwarded_from || m.from || '';
+    const name = /^\s*"?([^"<]*?)"?\s*<[^>]+>\s*$/.exec(raw)?.[1]?.trim();
+    return name || String(raw).replace(/^.*<([^>]+)>.*$/, '$1') || 'Email';
+  }
+  return m.author?.name || m.author?.id || 'Client';
 }
 
 export { normalizeTags };

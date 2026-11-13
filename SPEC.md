@@ -3,6 +3,8 @@
 
 > **Status.** This is the working specification as finalised in the 2 November 2026 product conversation. It supersedes the earlier draft. It remains a living document: where a decision here conflicts with an earlier idea, this document wins. Scope for the first release is in [section 19](#19-version-1-scope-and-deferred-work).
 >
+> **Changes on 13 November 2026 (client view):** what a client may see of a folio is defined (5.7.2): the client thread only, with messages kept from the client listed in `comms/hidden.json`. An email forwarded in by the team counts as the client's when the message it forwards came from outside the team.
+
 > **Changes on 11 November 2026 (team and client):** a folio's CC list has **two buckets** (5.7). The **team** (staff, closely integrated partners) hears everything said in the folio, internal notes included; the **client** hears only messages deliberately sent to them, and a message records exactly which client contacts it went to (`to`). A CC is a client unless put on the team. What was sent to the client and what came back from them form the **client thread**, interleaved with the team's conversation but with its own timing: who is waiting on whom, and since when (3.1.2, 5.7.1). `internal` on messages is replaced by `to`.
 >
 > **Changes on 10 November 2026:** **work is only folios**: work is folios inside folios (**sub-folios**). `ticket` is an ordinary type, nothing special; a sub-folio has no type unless given one. Support for layouts from before 1.0 (`upgradeLayout`, `sources/email/`, `sources/uploads/`) is removed; there are no such folios. On a folio's page the folios inside it are listed in the side column (13.2). **Priority is removed** as a concept. Urgency is in the eye of the beholder; status, target dates, blockers and tags carry what a team needs. A `priority` field written by hand is kept untouched as an unknown field (3.4); Folio does not read, set, validate or show it, and imports do not derive one.
@@ -484,11 +486,18 @@ An entry without `audience` is a **client**: the safe side, because telling a cl
 
 The common case: a request comes in from a client; someone acknowledges it at once; staff are assigned, work it and talk among themselves; the client gets an update now and then; and finally a **solved** message with a summary. The client's experience is the client thread, and its timing matters: a client must not wait too long.
 
-- **What is in it.** Messages sent to the client (`to`): direction `out`. Messages and emails from a client CC, and emails from anyone not on the team (the request that started it, a forwarded complaint): direction `in`. Hosts may say who else counts as the team (staff domains) so their emails are not taken for the client's.
+- **What is in it.** Messages sent to the client (`to`): direction `out`. Messages and emails from a client CC, and emails from anyone not on the team (the request that started it, a forwarded complaint): direction `in`. An email that someone on the team forwarded in counts as the client's when the message it forwards came from outside the team (`forwarded: true`, `forwarded_from`): that is how most tickets arrive. Hosts may say who else counts as the team (staff domains) so their emails are not taken for the client's.
 - **One conversation.** The client thread is not a separate place: it is interleaved with the team's messages in time order, so the people working the folio always see what the client has been told. Pages mark client messages clearly ("To Tim, Joe", "From Tim") and may filter to the client thread alone.
 - **Timing** (`clientThread(items)`, `folio.clientThread()`): `waiting` is `us` when the client's latest message is unanswered (since the first unanswered one) and `client` when the last word was ours (since then); plus `first_in`, `first_reply` (first response time), `last_in`, `last_out`, `unanswered`, `sent` and `received`. Hosts show it on the folio and its card, against a reply target they configure; a folio that is done needs no reply.
 - **Closing.** Sending the summary to the client and setting the status are one step in a host's composer ("Send and mark Done").
 - CC addresses are client and account contacts (3.7(3)); they are not secrets, and no credential or token for a channel belongs in the list.
+
+#### 5.7.2 What a client may see
+
+A host may let a client open a folio (a "client view"). What a client sees is the **client thread and nothing else**: the messages sent to them and the ones that came from their side, in time order, with the attachments of the messages sent to them. Never the team's notes, agents' reports, status updates that were not sent to them, the team's CC list, notes, data summaries, tasks, the checklist or the folio's history.
+
+- `folio.clientComms()` returns exactly that, shaped for a client page (`{ path, at, kind, direction, from, to, subject, text, attachments }`), with emails cleaned of quoted history, signatures and legal notices (`cleanEmailText`). Hosts build client pages from it and from nothing broader.
+- **Kept from the client.** Some messages the thread rule would show must not be: an email from a third party, a message sent to the wrong folio. `comms/hidden.json` (`{ "paths": [...], "changes": [...] }`) lists the paths in `comms/` kept from the client; `folio.hideFromClient(path, hidden)` changes it. Readers mark those items `hidden_from_client`; they are left out of the client's view and of the client thread's timing, and the team still sees them.
 
 ### 5.8 Tasks: well-defined work run elsewhere
 

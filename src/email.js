@@ -253,3 +253,85 @@ export function emailAttachments(text) {
 export function rawHeaderBlock(text) {
   return splitMessage(String(text || ''))[0];
 }
+
+
+// ---- forwarded messages and clean text ----
+
+const FORWARD_MARKER = /^\s*(?:>\s*)*(?:begin forwarded message:?|-{2,}\s*forwarded message\s*-{2,}|-{2,}\s*original message\s*-{2,}|_{10,}|forwarded message:?)\s*$/i;
+const FORWARD_FIELD = /^\s*(?:>\s*)*(from|to|cc|sent|date|subject|reply-to)\s*:\s*(.*)$/i;
+
+/**
+ * The header block of the first message forwarded inside an email body ("Begin forwarded message:",
+ * "---------- Forwarded message ---------", "-----Original Message-----"): { from, to, cc, date, subject, at } with
+ * `at` the line number the forwarded body starts on, or null when the body forwards nothing.
+ */
+export function forwardedHeaders(body) {
+  const lines = String(body || '').split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    if (!FORWARD_MARKER.test(lines[i])) continue;
+    const found = {};
+    let last = null;
+    let seen = 0;
+    let j = i + 1;
+    for (; j < Math.min(lines.length, i + 25); j++) {
+      const line = lines[j];
+      if (!line.replace(/^[\s>]+/, '').trim()) {
+        if (seen) break;
+        continue;
+      }
+      const m = FORWARD_FIELD.exec(line);
+      if (m) {
+        last = m[1].toLowerCase() === 'sent' ? 'date' : m[1].toLowerCase();
+        seen++;
+        found[last] = [found[last], m[2]].filter(Boolean).join(', ');
+      } else if (last && /^\s+\S/.test(line)) found[last] += ` ${line.trim()}`;
+      else break;
+    }
+    if (found.from || found.to || found.cc) return { ...found, at: j };
+  }
+  return null;
+}
+
+/** The address a forwarded email was originally from, lowercase, or null. */
+export function forwardedFrom(body) {
+  const f = forwardedHeaders(body);
+  return f?.from ? emailAddress(f.from) : null;
+}
+
+const SIG = /^(?:--\s*|__+|sent from my \w+.*|get outlook for \w+.*)$/i;
+const REPLY_HEAD = /^(?:on .{6,200}wrote:|-{2,}\s*original message\s*-{2,}|from:\s.+\bsent:\s.+)$/i;
+const NOTICE = /^\s*(?:confidentiality notice|this (?:e-?mail|message)(?: message)?(?:, including any attachments,)? (?:is|may be) (?:confidential|intended)|disclaimer:)/i;
+
+/**
+ * The part of an email worth reading: what the sender wrote, without quoted history, signatures and legal
+ * notices. For a forwarded email whose sender added nothing but a signature, the forwarded message itself (with
+ * its quote marks taken off). Returns { text, trimmed } (trimmed: something was left out). Never empty when the
+ * email had text: if cleaning leaves nothing, the original comes back.
+ */
+export function cleanEmailText(text) {
+  const original = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!original) return { text: '', trimmed: false };
+  const lines = original.split('\n');
+  const fwd = forwardedHeaders(original);
+  const strip = (ls) => {
+    const out = [];
+    for (const line of ls) {
+      const bare = line.trim();
+      if (REPLY_HEAD.test(bare) || SIG.test(bare) || NOTICE.test(bare)) break;
+      if (/^>/.test(bare)) continue;
+      out.push(line);
+    }
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  };
+  let own = fwd ? strip(lines.slice(0, lines.findIndex((l) => FORWARD_MARKER.test(l)))) : strip(lines);
+  if (fwd) {
+    const quoted = lines.slice(fwd.at).map((l) => l.replace(/^\s*(?:>\s?)+/, ''));
+    const inner = strip(quoted);
+    const head = [fwd.from && `From: ${fwd.from}`, fwd.date && `Date: ${fwd.date}`, fwd.subject && `Subject: ${fwd.subject}`].filter(Boolean).join('\n');
+    // A forward whose own text is only a signature reads as the forwarded message.
+    own = own.length > 40 ? `${own}\n\nForwarded message\n${head}\n\n${inner}` : `Forwarded message\n${head}\n\n${inner}`;
+  }
+  own = own.replace(/[￼​]+/g, '').trim();
+  if (!own) return { text: original, trimmed: false };
+  return { text: own, trimmed: own.length < original.length };
+}

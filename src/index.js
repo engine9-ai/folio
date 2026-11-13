@@ -22,9 +22,9 @@ export {
   taskStateLabel,
   taskTarget,
 } from './tasks.js';
-export { COMMS_DIR, COMMS_KINDS, MESSAGE_KINDS, clientThread, commsKindOf, isEmailPath } from './comms.js';
+export { COMMS_DIR, COMMS_KINDS, HIDDEN_FILE, MESSAGE_KINDS, clientThread, commsKindOf, isEmailPath, setHiddenFromClient } from './comms.js';
 export { ExcludingFs, RESERVED_DIRS, canHoldFolio, nestedFolioDirs } from './nested.js';
-export { decodeEncodedWords, emailAddress, emailAttachments, looksLikeEmail, parseEmail, parseEmailHeaders } from './email.js';
+export { cleanEmailText, decodeEncodedWords, emailAddress, emailAttachments, forwardedFrom, forwardedHeaders, looksLikeEmail, parseEmail, parseEmailHeaders } from './email.js';
 export { KEEP_LIMITS, SUMMARY_KIND, dataFormat, keepInFolio, parseDelimited, summarizeData } from './data.js';
 export { CREDENTIAL_PATTERNS, PROHIBITED_TYPES, describeRemoved, findCredentials, prohibitedIn, scrubText } from './privacy.js';
 export { MemoryFs, SubFs, normalizePath } from './fs.js';

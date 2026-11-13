@@ -1,5 +1,5 @@
 import { ValidationError } from './errors.js';
-import { parseEmail } from './email.js';
+import { cleanEmailText, forwardedHeaders, parseEmail } from './email.js';
 import { scrubText } from './privacy.js';
 import { authorChannel, ccAudience, ccKey, findCc } from './cc.js';
 
@@ -41,6 +41,13 @@ export const COMMS_KINDS = Object.freeze([...MESSAGE_KINDS, 'email', 'summary'])
 const MESSAGE_FILE = /\.(comment|update|agent|chat)\.json$/i;
 const EMAIL_FILE = /\.(eml|msg)$/i;
 const SUMMARY_FILE = /\.summary\.md$/i;
+
+/**
+ * Messages kept from the client (SPEC 5.7.2): the paths, in comms/, of messages and emails that a client must never
+ * see even though the thread rule would show them (a third party's email, a message sent by mistake). Kept beside
+ * the messages, because an email is stored as received and cannot carry a flag of its own.
+ */
+export const HIDDEN_FILE = `${COMMS_DIR}/hidden.json`;
 
 /** What kind of message a comms file is, from its name; null for anything else. */
 export function commsKindOf(path) {
@@ -132,19 +139,23 @@ export const isEmailPath = (p) => EMAIL_FILE.test(p) && p.startsWith(`${COMMS_DI
  * given, says whether a sender not on the CC list is on the team (staff email domains, say); otherwise only team
  * CCs and members posting in the folio count as the team. `limit` keeps the newest.
  */
-export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc = [], team = null } = {}) {
+export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc = [], team = null, clean = false } = {}) {
   const fs = folio.fs;
-  const paths = (await fs.list(COMMS_DIR)).filter((p) => commsKindOf(p) && !p.slice(COMMS_DIR.length + 1).includes('/'));
-  const files = await read(paths, (p) => (/\.msg$/i.test(p) ? null : fs.read(p)));
+  const all = await fs.list(COMMS_DIR);
+  const paths = all.filter((p) => commsKindOf(p) && !p.slice(COMMS_DIR.length + 1).includes('/'));
+  const [files, hidden] = await Promise.all([read(paths, (p) => (/\.msg$/i.test(p) ? null : fs.read(p))), all.includes(HIDDEN_FILE) ? readHidden(fs) : new Set()]);
   const items = [];
   for (const [i, path] of paths.entries()) {
     const kind = commsKindOf(path);
     const cur = files[i];
     if (kind === 'email') {
       const parsed = cur ? parseEmail(cur.text) : null;
-      const text = parsed?.text || '';
+      const full = parsed?.text || '';
       const h = parsed?.headers || {};
-      items.push({ kind, path, at: isoOf(h.date) || dateFromName(path), author: { type: 'email', id: h.from || null }, from: h.from || null, to_header: h.to || null, subject: h.subject || null, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}) });
+      const fwd = forwardedHeaders(full);
+      const cleaned = clean ? cleanEmailText(full) : null;
+      const text = cleaned ? cleaned.text : full;
+      items.push({ kind, path, at: isoOf(h.date) || dateFromName(path), author: { type: 'email', id: h.from || null }, from: h.from || null, to_header: h.to || null, subject: h.subject || null, ...(fwd?.from ? { forwarded_from: fwd.from } : {}), text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(cleaned?.trimmed ? { cleaned: true } : {}) });
       continue;
     }
     if (!cur) continue;
@@ -172,6 +183,7 @@ export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc 
       }
     }
   for (const it of items) Object.assign(it, threadOf(it, cc, team));
+  for (const it of items) if (hidden.has(it.path)) it.hidden_from_client = true;
   items.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')) || a.path.localeCompare(b.path));
   return limit && items.length > limit ? items.slice(-limit) : items;
 }
@@ -187,9 +199,62 @@ function threadOf(it, cc, team) {
   if (hit) return ccAudience(hit) === 'team' ? { thread: 'team' } : { thread: 'client', direction: 'in' };
   if (it.kind === 'email') {
     const from = authorChannel({ type: 'email', id: it.from });
-    return from && team?.(from.channel, from.address) ? { thread: 'team' } : { thread: 'client', direction: 'in' };
+    const ours = (who) => Boolean(who && (team?.(who.channel, who.address) || cc.some((c) => ccAudience(c) === 'team' && c.channel === who.channel && String(c.address).toLowerCase() === who.address)));
+    if (!ours(from)) return { thread: 'client', direction: 'in' };
+    // Someone on the team forwarded it in: when the message they forwarded came from outside the team, it is the
+    // client's (the ticket that started it), and the client is waiting from then.
+    const original = it.forwarded_from ? authorChannel({ type: 'email', id: it.forwarded_from }) : null;
+    if (original && !ours(original)) return { thread: 'client', direction: 'in', forwarded: true };
+    return { thread: 'team' };
   }
   return { thread: 'team' };
+}
+
+async function readHidden(fs) {
+  try {
+    const cur = await fs.read(HIDDEN_FILE);
+    const list = JSON.parse(cur?.text || '{}').paths;
+    return new Set(Array.isArray(list) ? list.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Keep a message or email from the client, or stop keeping it (SPEC 5.7.2). `path` is its path in comms/.
+ * Returns { path, hidden }.
+ */
+export async function setHiddenFromClient(folio, path, hidden = true, { actor = null } = {}) {
+  const p = String(path || '').replace(/^\/+/, '');
+  if (!commsKindOf(p) || !p.startsWith(`${COMMS_DIR}/`) || p.slice(COMMS_DIR.length + 1).includes('/')) throw new ValidationError('Give the path of a message or email in comms/');
+  const fs = folio.fs;
+  if (!(await fs.list(COMMS_DIR)).includes(p)) throw new ValidationError(`${p} is not in this folio's conversation`);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    let cur = null;
+    try {
+      cur = await fs.read(HIDDEN_FILE);
+    } catch {
+      cur = null;
+    }
+    let data = { paths: [], changes: [] };
+    try {
+      data = { paths: [], changes: [], ...JSON.parse(cur?.text || '{}') };
+    } catch {
+      /* start again */
+    }
+    const set = new Set(data.paths);
+    if (hidden ? set.has(p) : !set.has(p)) return { path: p, hidden: Boolean(hidden) };
+    if (hidden) set.add(p);
+    else set.delete(p);
+    const next = { paths: [...set].sort(), changes: [...(data.changes || []), { at: folio.now(), path: p, hidden: Boolean(hidden), actor }].slice(-200) };
+    try {
+      await fs.write(HIDDEN_FILE, json(next), { ifMatch: cur ? cur.etag : null, contentType: 'application/json' });
+      return { path: p, hidden: Boolean(hidden) };
+    } catch (e) {
+      if (e?.code !== 'conflict') throw e;
+    }
+  }
+  throw new ValidationError('Someone else changed what the client sees at the same time; try again');
 }
 
 /**
@@ -201,7 +266,7 @@ function threadOf(it, cc, team) {
  *     sent, received }                          counts each way
  */
 export function clientThread(items) {
-  const client = (items || []).filter((m) => m.thread === 'client' && m.at);
+  const client = (items || []).filter((m) => m.thread === 'client' && m.at && !m.hidden_from_client);
   if (!client.length) return null;
   let first_in = null;
   let first_reply = null;

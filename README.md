@@ -57,6 +57,7 @@ await bug.folio.add({ name: 'screenshot.png', data: pngBytes }, { actor });     
 await folio.add({ name: 'donors.csv', data: csvBytes }, { actor });                       // summary in sources/data/, original to `hold`
 await bug.folio.comment('Reproduced on iOS', { actor });                           // comms/…comment.json
 await folio.post('update', 'On track for Friday', { actor });                       // comms/…update.json
+await folio.clientComms();                                                         // what a client may see (SPEC 5.7.2)
 await bug.folio.comms();   // the conversation in time order: messages, emails
 await folio.addCc('Tim Thornburg <tim@pursuant.com>', { actor });                // CC a person or channel (SPEC 5.7)
 await folio.addCc('#acme-staff', { actor, audience: 'team' });                   // team: hears everything; default is client
