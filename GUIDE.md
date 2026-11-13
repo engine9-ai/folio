@@ -70,6 +70,21 @@ Access is given on folders and flows down: share a top-level folder with the tea
 account manager, one folio with a client contact. A folder or folio can be **restricted** so that access from
 above stops there. None of this is stored in the folders themselves.
 
+## Clients
+
+A host may let clients into their own folios (a "client view"; SPEC 5.7.2). What a client sees is the **client
+thread only**: the messages sent to them and the ones from their side, with the files attached to the messages sent
+to them. Never the team's notes, agents' reports, other files, the checklist, tasks or history.
+
+- **Write to the team by default.** A comment, an update or an agent's report is internal unless it is deliberately
+  sent to the client. Anything you would not want the client to read belongs in an internal note, never in a
+  message to them.
+- **Keep a message from the client** when the thread rule would show something it should not (a third party's email
+  forwarded in, a message sent to the wrong folio): it stays in the conversation for the team, marked.
+- **Forwarded tickets count.** An email someone on the team forwards in is the client's when the message it forwards
+  came from outside the team: the client's wait starts from it.
+- Write messages to clients as you would an email from the team: they are signed by the team, not by you.
+
 ## Tasks
 
 A **task** is one run of a well-defined piece of work on an execution platform: engine9's task, copied as it is
@@ -229,6 +244,9 @@ summary as an update or to create the next steps, and do it only when they say s
 
 ## For agents
 
+- To find work, search (folio-server: `find_folios`, by words, folder, status, owner, tag or a waiting client); to
+  understand one folio, read it whole in one call (`review_folio`). The connection's instructions are short; the full
+  rules are this guide (`guide`).
 - Read `README.md`, `CONTEXT.md` and `AGENTS.md` first; they explain the folio and its conventions.
 - Use `add_to_folio` for anything that comes from outside (a file, a link, text). It applies the rules
   above. Use `write_file` only for files you author yourself (notes, summaries, `CONTEXT.md`), and
