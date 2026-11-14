@@ -1,4 +1,4 @@
-export { EDITABLE, Folio, externalOf, mapLimit } from './folio.js';
+export { EDITABLE, Folio, externalOf, mapLimit, staffName } from './folio.js';
 export { DONE_STATUSES, FOLIO_TYPES, READINESS_STATES, RELATIONSHIP_TYPES, RESERVED_TYPES, findCycle, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
 export { INTAKE_AS, INTAKE_KINDS, classify, intakeChoices, repositoryFromUrl, safeName, slugify, urlsIn } from './intake.js';
 export { TEXT_FORMATS, detectTextFormat, htmlToText, textFormatOf, titleOfText } from './text-format.js';

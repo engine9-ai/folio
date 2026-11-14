@@ -496,7 +496,7 @@ The common case: a request comes in from a client; someone acknowledges it at on
 
 A host may let a client open a folio (a "client view"). What a client sees is the **client thread and nothing else**: the messages sent to them and the ones that came from their side, in time order, with the attachments of the messages sent to them. Never the team's notes, agents' reports, status updates that were not sent to them, the team's CC list, notes, data summaries, tasks, the checklist or the folio's history.
 
-- `folio.clientComms()` returns exactly that, shaped for a client page (`{ path, at, kind, direction, from, to, subject, text, attachments }`), with emails cleaned of quoted history, signatures and legal notices (`cleanEmailText`). Hosts build client pages from it and from nothing broader.
+- `folio.clientComms()` returns exactly that, shaped for a client page (`{ path, at, kind, direction, from, to, subject, text, attachments }`), with emails cleaned of quoted history, signatures and legal notices (`cleanEmailText`). Hosts build client pages from it and from nothing broader. Messages sent to the client carry their author's name (`from`, `staffName`): the client sees who on the team wrote, never their address.
 - **Kept from the client.** Some messages the thread rule would show must not be: an email from a third party, a message sent to the wrong folio. `comms/hidden.json` (`{ "paths": [...], "changes": [...] }`) lists the paths in `comms/` kept from the client; `folio.hideFromClient(path, hidden)` changes it. Readers mark those items `hidden_from_client`; they are left out of the client's view and of the client thread's timing, and the team still sees them.
 
 ### 5.8 Tasks: well-defined work run elsewhere

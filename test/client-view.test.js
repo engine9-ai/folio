@@ -95,6 +95,7 @@ test('clientComms shows a client only the client thread, and nothing kept from t
   assert.equal(seen[0].direction, 'in');
   assert.equal(seen[0].from, 'Tim Thornburg');
   assert.equal(seen[1].direction, 'out');
+  assert.equal(seen[1].from, 'Chris'); // the author's name, never their address
   assert.deepEqual(seen[1].attachments, ['attachments/before-after.png']);
   const everything = JSON.stringify(seen);
   for (const secret of ['INTERNAL', 'PageSpeed', 'sam@engine9.ai', 'wrong folio', 'chris@engine9.ai']) assert.ok(!everything.includes(secret), `${secret} reached the client`);
@@ -121,4 +122,13 @@ test('a folio with messages kept from the client still validates', async () => {
   await folio.hideFromClient(m.path, true, { actor: staff });
   const r = await validateFolio(folio.fs);
   assert.deepEqual((r.errors || r.problems || []).filter((e) => /hidden/.test(JSON.stringify(e))), []);
+});
+
+test('staffName: a name for the client, never an address', async () => {
+  const { staffName } = await import('../src/index.js');
+  assert.equal(staffName({ type: 'user', id: 'sam.okafor@engine9.ai' }), 'Sam Okafor');
+  assert.equal(staffName({ type: 'user', id: 'chris@engine9.ai', name: 'Chris Lundberg' }), 'Chris Lundberg');
+  assert.equal(staffName({ type: 'user', id: 'chris@engine9.ai' }, new Map([['chris@engine9.ai', 'Chris L.']])), 'Chris L.');
+  assert.equal(staffName({ type: 'agent', id: 'claude', on_behalf_of: 'pat@engine9.ai' }), 'Pat');
+  assert.equal(staffName(null), null);
 });

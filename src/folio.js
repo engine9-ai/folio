@@ -390,13 +390,16 @@ export class Folio {
    * What a client may see of the conversation (SPEC 5.7.2): the client thread (messages sent to the client, and
    * what came from them), without anything kept from the client. Each item carries only what a client page needs;
    * the team's notes, agents' reports and who on the team is CC'd never appear. `clean` drops quoted history and
-   * signatures from emails.
+   * signatures from emails. A message sent to the client carries its author's name (`from`), never their address:
+   * from `names` (a Map of lowercase email to name, e.g. the team's CC entries) when given, else the author's own
+   * name, else one made from the address ("sam.okafor@..." -> "Sam Okafor"). An agent's message is signed by the
+   * person it acted for.
    */
-  async clientComms({ cc, team = null, clean = true, maxChars = 8000 } = {}) {
+  async clientComms({ cc, team = null, clean = true, maxChars = 8000, names = null } = {}) {
     const items = await this.comms({ limit: 0, maxChars, cc, team, clean });
     return items
       .filter((m) => m.thread === 'client' && !m.hidden_from_client)
-      .map((m) => ({ path: m.path, at: m.at, kind: m.kind === 'email' ? 'email' : 'message', direction: m.direction, from: m.direction === 'in' ? clientName(m) : null, to: m.direction === 'out' ? m.to || [] : null, subject: m.subject || null, text: m.text, ...(m.truncated ? { truncated: true } : {}), attachments: m.kind === 'email' ? [] : (m.attachments || []).map(String) }));
+      .map((m) => ({ path: m.path, at: m.at, kind: m.kind === 'email' ? 'email' : 'message', direction: m.direction, from: m.direction === 'in' ? clientName(m) : staffName(m.author, names), to: m.direction === 'out' ? m.to || [] : null, subject: m.subject || null, text: m.text, ...(m.truncated ? { truncated: true } : {}), attachments: m.kind === 'email' ? [] : (m.attachments || []).map(String) }));
   }
 
   /** Keep a message or email in comms/ from the client, or show it again (SPEC 5.7.2). */
@@ -911,6 +914,17 @@ function clientName(m) {
     return name || String(raw).replace(/^.*<([^>]+)>.*$/, '$1') || 'Email';
   }
   return m.author?.name || m.author?.id || 'Client';
+}
+
+/** The name a client sees for someone on the team: never their address. */
+export function staffName(author, names = null) {
+  const id = String((author?.type === 'agent' ? author.on_behalf_of : author?.id) || '').toLowerCase();
+  const fromMap = names && typeof names.get === 'function' ? names.get(id) : null;
+  if (fromMap) return String(fromMap);
+  if (author?.name && author.type !== 'agent') return String(author.name);
+  const local = id.includes('@') ? id.split('@')[0] : id;
+  const made = local.split(/[._+-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+  return made || null;
 }
 
 export { normalizeTags };
