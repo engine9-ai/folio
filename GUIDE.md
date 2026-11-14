@@ -72,6 +72,10 @@ above stops there. None of this is stored in the folders themselves.
 
 ## Clients
 
+"Client" means who the work is for: the organisation (its top-level folder, with sub-folders for its parts or
+sub-accounts) and the people on its side. Folio does not use "account" as a concept (SPEC 2.3): if another system
+speaks of an account, the matching place in Folio is that client's folder.
+
 A host may let clients into their own folios (a "client view"; SPEC 5.7.2). What a client sees is the **client
 thread only**: the messages sent to them and the ones from their side, with the files attached to the messages sent
 to them. Never the team's notes, agents' reports, other files, the checklist, tasks or history.

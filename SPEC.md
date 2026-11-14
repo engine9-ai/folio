@@ -3,6 +3,8 @@
 
 > **Status.** This is the working specification as finalised in the 2 November 2026 product conversation. It supersedes the earlier draft. It remains a living document: where a decision here conflicts with an earlier idea, this document wins. Scope for the first release is in [section 19](#19-version-1-scope-and-deferred-work).
 >
+> **Decision on 14 November 2026 (language):** Folio says "client" for who the work is for, both the organisation (a top-level folder and its sub-folders) and its people; "account" is not a Folio concept and no `account_id` is stored (2.3).
+>
 > **Changes on 13 November 2026 (client view):** what a client may see of a folio is defined (5.7.2): the client thread only, with messages kept from the client listed in `comms/hidden.json`. An email forwarded in by the team counts as the client's when the message it forwards came from outside the team.
 
 > **Changes on 11 November 2026 (team and client):** a folio's CC list has **two buckets** (5.7). The **team** (staff, closely integrated partners) hears everything said in the folio, internal notes included; the **client** hears only messages deliberately sent to them, and a message records exactly which client contacts it went to (`to`). A CC is a client unless put on the team. What was sent to the client and what came back from them form the **client thread**, interleaved with the team's conversation but with its own timing: who is waiting on whom, and since when (3.1.2, 5.7.1). `internal` on messages is replaced by `to`.
@@ -45,9 +47,9 @@ A folio is not a chat transcript, a database row, an AI-agent session, or a GitH
 
 ### 1.2 Intended users
 
-- **Account managers and support staff** collect requests, communicate status, gather feedback, and coordinate work.
+- **Client managers and support staff** collect requests, communicate status, gather feedback, and coordinate work.
 - **Engineers and designers** investigate issues, work across repositories, publish artifacts, and request review.
-- **Account stakeholders and invited reviewers** inspect selected work, preview deliverables, and submit feedback.
+- **Client stakeholders and invited reviewers** inspect selected work, preview deliverables, and submit feedback.
 - **External AI agents** use permitted MCP capabilities to read context, organise evidence, propose changes, or update approved folio files.
 - **Platform administrators** manage membership, access, integrations, and operational policy without owning the folio's substantive content.
 
@@ -63,7 +65,7 @@ The application uses clear, stable terminology.
 
 | Term | Definition |
 |---|---|
-| **Account** | An organisation or working group whose members may access one or more folios. |
+| **Client** | Who the work is for, in both senses: the organisation (a top-level folder, with sub-folders for its parts or sub-accounts) and the people on its side (the client CC list, the client thread, the client view). See 2.3. |
 | **Folio** | One self-contained folder representing a bounded body of work. |
 | **Folio type** | Why a folio exists: a project, a request, a bug, a support request, a review... A folio may have no type. `task` is not a folio type (5.8). |
 | **Relationship** | A connection between folios, such as blocked by, related, or discovered from. |
@@ -92,6 +94,29 @@ A folio sits in a host's folder tree (inside a top-level folder, 3.1.1) *for pur
 ### 2.2 Human-readable language
 
 Prefer labels such as **Open Folio**, **New Folio**, **Waiting on Feedback**, **Preview**, **Decision**, **Related Files**, and **Ready to Work**. Avoid developer-only language in the ordinary customer experience. In particular, a folio of work is not interchangeable with an internal action, command, or agent execution step.
+
+### 2.3 Decision: "Client", not "Account" (14 November 2026)
+
+Folio says **client** for who the work is for, and does not use **account** as a Folio concept. This is an explicit
+decision, made after weighing a rename of every "client" to "account" (engine9's usual word).
+
+- **"Account" is too rigid.** In engine9 an account is a hard record with an `account_id`, and a client often has
+  several (one parent, many sub-accounts). In Folio the organisation is a folder: a top-level folder for the client,
+  sub-folders for its parts or sub-accounts, as deep as needed. Which engine9 account a folder corresponds to is
+  implied by the folder, not stored as a hard id; Folio keeps no `account_id`. (If a hard link is ever needed, an
+  optional per-folder file holding external ids is the place for it; not built.)
+- **"Account" does not read well for people.** Folio needs a word for the people on the other side as much as for
+  the organisation: "client waiting", "message client", the client thread, the Client role and access level, the
+  client view. "Account waiting" or "Tim is an Account" does not read; "an Account role" sounds like a whole
+  organisation, not a person.
+- **"Client" does both jobs.** It names the organisation (the client's folder) and its people (the client's
+  contacts, what they see, how long they have waited) without a second word. Inside the team, "client" also reads
+  correctly for nonprofit and agency work, where the people served are clients of the team.
+
+Where engine9 systems speak of accounts, a client's top-level folder (or one of its sub-folders) is the
+corresponding place in Folio. Folio's own deployment still lives in an engine9 account (`E9_ACCOUNT_ID`); that is
+hosting, not a Folio concept. Interfaces say "client" for the top-level folder (for example "All clients" when
+filtering a person's folios).
 
 ---
 
@@ -657,7 +682,7 @@ Examples include a PDF, an image collection, a research memo, a CSV export, an H
 
 Each artifact should have a stable identity, a name, purpose, type, owner or publisher when known, creation date, optional description, and links to relevant folios and decisions. Its files and non-secret descriptive information belong inside `artifacts/`.
 
-Artifacts should be discoverable by name, type, last update, associated folio, and whether review is requested. Account stakeholders may see a curated artifact view rather than the complete filesystem.
+Artifacts should be discoverable by name, type, last update, associated folio, and whether review is requested. Client stakeholders may see a curated artifact view rather than the complete filesystem.
 
 ### 7.2 Immutable review versions
 
@@ -1019,7 +1044,7 @@ The product should be considered faithful to this specification when the followi
 9. Feedback on a preview can identify an immutable artifact version, and reviewers do not need access to unrelated folio contents.
 10. Multiple git repositories (GitHub or otherwise) and multiple named MCP connections can be listed in one folio without any live connection, and missing live connections are clearly shown after export/import.
 11. An external agent can read and, when explicitly permitted, update the same folio content that humans use, without native Folio chat.
-12. Account-level and folio-level permissions are respected, and revoking a hosted permission removes subsequent hosted access.
+12. Folder-level and folio-level permissions are respected, and revoking a hosted permission removes subsequent hosted access.
 13. No usable credentials or hosting-specific permission grants are required inside a portable folio.
 14. A simple folio remains simple, while a larger one supports hierarchy, evidence, review, and durable decisions.
 15. The application consistently uses **folder**, **folio**, **feedback**, and **artifact** as its principal terms.
