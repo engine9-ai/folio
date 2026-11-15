@@ -220,8 +220,16 @@ summarised the same way, whatever brought it in:
 4. **Small, clean files stay.** A file of at most 50 records and 64 KB in which no personal data is found
    is kept as an ordinary file, like any sample result.
 
-Spreadsheets, Parquet, database dumps and compressed exports cannot be read here; they are held the same
-way and summarised by name, type and size only.
+5. **Specs stay.** Layout spreadsheets and field maps are often the most important files in a folio. An Excel
+   workbook (`.xlsx`) is read sheet by sheet: names, headers, the rows that really hold data, fields, masked
+   samples, and the whole of every sheet with no personal data in it. A workbook with no personal data is kept
+   in `attachments/` with that readable summary in `sources/data/`; one with personal data (a sample extract) is
+   held like any data file. Add any other data file with `as: "spec"` to keep it the same way, or use
+   `keep_as_spec` on a summary whose original is still held. If personal data is found, it stays held unless a
+   person has checked it.
+
+Old `.xls`, `.ods` and Numbers files, Parquet, database dumps and compressed exports cannot be read here; they are
+held the same way and summarised by name, type and size only.
 
 An email that carries a data file as an attachment is handled the same way: the attachment is
 summarised and held, and the folio keeps a text copy of the email listing where each attachment went.

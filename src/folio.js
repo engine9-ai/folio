@@ -3,7 +3,7 @@ import { FOLIO_STATUS_PATTERN, createManifest, newFolioId, validateManifest } fr
 import { addRepositoryTo, describeRepository, removeRepositoryFrom, repositoryKey } from './repositories.js';
 import { RELATIONSHIP_TYPES, RESERVED_TYPES, RESERVED_TYPE_MESSAGE, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
 import { validateFolio } from './validate.js';
-import { addItem, classify, createUnique, intakeChoices, slugify, writeIntakeRecord } from './intake.js';
+import { addItem, classify, createUnique, intakeChoices, keepAsSpec, slugify, writeIntakeRecord } from './intake.js';
 import { parseEmail } from './email.js';
 import { scrubText } from './privacy.js';
 import { ExcludingFs, canHoldFolio, nestedFolioDirs } from './nested.js';
@@ -462,6 +462,14 @@ export class Folio {
     return items
       .filter((m) => m.thread === 'client' && !m.hidden_from_client)
       .map((m) => ({ path: m.path, at: m.at, kind: m.kind === 'email' ? 'email' : 'message', direction: m.direction, from: m.direction === 'in' ? clientName(m) : m.kind === 'email' ? senderName(m.from) : staffName(m.author, names), to: m.direction === 'out' ? m.to || [] : null, subject: m.subject || null, text: m.text, ...(m.truncated ? { truncated: true } : {}), attachments: m.kind === 'email' ? [] : (m.attachments || []).map(String) }));
+  }
+
+  /**
+   * Keep a held data file as a spec (a layout, a field map): `bytes` are its original, from temporary storage. See
+   * intake.js keepAsSpec.
+   */
+  keepAsSpec(path, bytes, { actor = defaultActor, via = 'folio-lib', force = false } = {}) {
+    return keepAsSpec(this, path, bytes, { actor, via, force });
   }
 
   /** Keep a message or email in comms/ from the client, or show it again (SPEC 5.7.2). */

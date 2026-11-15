@@ -1,4 +1,4 @@
-import { ConflictError, ValidationError } from './errors.js';
+import { ConflictError, NotFoundError, ValidationError } from './errors.js';
 import { normalizePath } from './fs.js';
 import { emailAddress, emailAttachments, looksLikeEmail, parseEmail, parseEmailHeaders, rawHeaderBlock } from './email.js';
 import { dataFormat, keepInFolio, summarizeData } from './data.js';
@@ -51,7 +51,7 @@ export const INTAKE_KINDS = ['repository', 'email', 'link', 'note', 'message', '
  *   update                   text posted as a status update in comms/
  *   file                     a dropped file kept as a file, never imported
  */
-export const INTAKE_AS = ['auto', 'markdown', 'html', 'text', 'json', 'import', 'comment', 'update', 'file'];
+export const INTAKE_AS = ['auto', 'markdown', 'html', 'text', 'json', 'import', 'comment', 'update', 'file', 'spec'];
 
 /** File names that are credentials by nature. They are refused, never stored. */
 const CREDENTIAL_FILE = /(^|\/)(\.env(\.(?!example$|sample$|template$)[^/]+)?|\.netrc|\.pgpass|\.npmrc|id_(rsa|dsa|ecdsa|ed25519)|[^/]+\.(pem|key|p12|pfx|jks|keystore|kdbx|ppk|asc|gpg|ovpn|mobileprovision))$/i;
@@ -220,7 +220,8 @@ export function classify(item = {}) {
   }
   const retype = TEXT_FORMATS[as] ? { retype: as } : {};
   const data = as === 'file' || retype.retype ? null : dataFormat({ name, type, bytes });
-  if (data) return { kind: 'data', format: data.format };
+  // A spec (a layout, a field map): read like data, and kept with the work when it holds no personal data.
+  if (data) return { kind: 'data', format: data.format, ...(as === 'spec' ? { spec: true } : {}) };
   return { kind: 'file', ...retype };
 }
 
@@ -450,8 +451,22 @@ export async function addItem(folio, item, { folder, actor = { type: 'unknown' }
   if (c.kind === 'data') {
     const bytes = toBytes(item.data ?? item.text ?? '');
     const name = safeName(item.name || 'data');
-    const summary = await summarizeData(bytes, { name, type: item.type, submitted_at: folio.now(), submitted_by: actor?.id, via });
-    if (!keepInFolio(summary)) {
+    const summary = await summarizeData(bytes, { name, type: item.type, submitted_at: folio.now(), submitted_by: actor?.id, via, spec: Boolean(c.spec) });
+    const keep = keepInFolio(summary);
+    if (keep && (summary.format === 'spreadsheet' || summary.spec)) {
+      // A spreadsheet or spec with no personal data: the file goes with the work, and its readable summary (sheets,
+      // headers, the whole of each sheet) beside it in sources/data/, so it can be read here.
+      const h8 = summary.sha256.slice(0, 8);
+      const existing = (await fs.list('sources/data')).find((p) => p.endsWith(`-${h8}.json`));
+      if (existing) return [{ kind: 'data', path: existing, name, records: JSON.parse((await fs.read(existing)).text).records, pii: [], duplicate: true, summary: `${name} is already in this folio: ${existing}` }];
+      const placed = await placeFile(folio, { ...item, as: 'file' }, bytes, { folder, actor, via, record, data: { format: summary.format, records: summary.records, fields: summary.fields.length, ...(summary.spec ? { spec: true } : {}) } });
+      summary.stored = { where: 'folio', path: placed[0].path };
+      const path = `sources/data/${day()}-${slugify(name.replace(/\.[^.]+$/, ''), 40) || 'data'}-${h8}.json`;
+      await fs.write(path, json(summary), { ifMatch: null, contentType: 'application/json' });
+      const sheets = summary.sheets ? `${summary.sheets.length} sheet${summary.sheets.length === 1 ? '' : 's'}, ` : '';
+      return [{ kind: 'data', path, file: placed[0].path, name, records: summary.records, pii: [], stored: summary.stored, summary: `Kept ${name} in ${placed[0].path} (${sheets}${(summary.records ?? 0).toLocaleString('en-US')} rows, no personal data found); readable summary in ${path}` }];
+    }
+    if (!keep) {
       const h8 = summary.sha256.slice(0, 8);
       const existing = (await fs.list('sources/data')).find((p) => p.endsWith(`-${h8}.json`));
       let path = existing;
@@ -473,6 +488,30 @@ export async function addItem(folio, item, { folder, actor = { type: 'unknown' }
 
   // file
   return placeFile(folio, item, toBytes(item.data ?? item.text ?? ''), { folder, actor, via, record });
+}
+
+/**
+ * Keep a data file that was held (its summary at `path` in sources/data/) as a spec: the original `bytes` (from
+ * the host's temporary storage) go to attachments/, and the summary is read again and rewritten to say so. Refused
+ * when personal data is found, unless `force` (a person has looked and it is a layout's examples, say), which is
+ * recorded. Returns { path, file, summary }.
+ */
+export async function keepAsSpec(folio, path, bytes, { actor, via, force = false } = {}) {
+  const p = String(path || '');
+  if (!/^sources\/data\/[^/]+\.json$/.test(p)) throw new ValidationError('Give the path of a data summary in sources/data/');
+  const cur = await folio.fs.read(p);
+  if (!cur) throw new NotFoundError(p);
+  const old = JSON.parse(cur.text);
+  if (old.stored?.where === 'folio') return { path: p, file: old.stored.path, summary: old, already: true };
+  const summary = await summarizeData(bytes, { name: old.name, type: old.content_type || undefined, submitted_at: old.submitted_at, submitted_by: old.submitted_by, via: old.via, spec: true });
+  if (old.sha256 && summary.sha256 !== old.sha256) throw new ValidationError('Those bytes are not the file this summary describes');
+  if (summary.pii.found && !force) throw new ValidationError(`Personal data was found in ${old.name} (${summary.pii.types.map((t) => t.toLowerCase().replace(/_/g, ' ')).join(', ')}), so it stays held. If a person has checked it and it is only a layout's examples, keep it with force.`);
+  const record = (extra) => writeIntakeRecord(folio, { actor, via, ...extra });
+  const placed = await placeFile(folio, { name: old.name, type: old.content_type || undefined, data: bytes, as: 'file' }, bytes, { actor, via, record, data: { format: summary.format, records: summary.records, fields: summary.fields.length, spec: true } });
+  summary.stored = { where: 'folio', path: placed[0].path };
+  summary.kept_as_spec = { at: folio.now(), by: actor?.on_behalf_of || actor?.id || null, ...(summary.pii.found ? { despite: summary.pii.types } : {}) };
+  await folio.fs.write(p, json(summary), { contentType: 'application/json' });
+  return { path: p, file: placed[0].path, summary };
 }
 
 /** A note's file name: the given name (with the format's extension), else <date>-<title>.<ext>. */
@@ -575,6 +614,7 @@ function heldPhrase(stored, what) {
 }
 
 function dataSentence(s) {
+  if (s.spec && s.pii.found) return `${s.name} was marked as a spec, but personal data was found in it (${s.pii.types.map((t) => t.toLowerCase().replace(/_/g, ' ')).join(', ')}), so it is summarised with that data masked and held for a limited time like any data file; ${heldPhrase(s.stored, 'the file itself')}`;
   const size = s.records === null ? s.format.replace(/_/g, ' ') : `${s.records.toLocaleString('en-US')} ${s.logs ? 'lines' : 'records'}${s.fields.length ? `, ${s.fields.length} fields` : ''}`;
   const pii = s.pii.found ? `; personal data (${s.pii.types.map((t) => t.toLowerCase().replace(/_/g, ' ')).join(', ')}) masked in the samples` : s.pii.unknown ? '; not read, so treated as personal data' : '';
   return `Summarised ${s.name} (${size}${pii}); ${heldPhrase(s.stored, 'the file itself')}`;

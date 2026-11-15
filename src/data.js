@@ -1,4 +1,6 @@
 import { CLASSIFIER_VERSION, RULES_VERSION, classify, maskValue, redactText, scanText } from '@engine9/pii-classifier';
+import { readWorkbook } from './xlsx.js';
+import { findCredentials } from './privacy.js';
 
 /**
  * Summaries of data files and logs (GUIDE.md "Data files and logs", SPEC 8.4.1).
@@ -33,7 +35,14 @@ const LOG_LINE_CHARS = 300;
 const TABLE_EXT = { csv: 'csv', tsv: 'tsv', tab: 'tsv', psv: 'csv', json: 'json', jsonl: 'jsonl', ndjson: 'jsonl' };
 const LOG_EXT = new Set(['log', 'out', 'err', 'trace']);
 /** Data we can name but not read here: kept out of the folio, summarised by name, size and type only. */
-const OPAQUE_EXT = { xlsx: 'spreadsheet', xls: 'spreadsheet', xlsm: 'spreadsheet', ods: 'spreadsheet', numbers: 'spreadsheet', parquet: 'parquet', avro: 'avro', orc: 'orc', sqlite: 'database', db: 'database', mdb: 'database', accdb: 'database', sav: 'statistics', dta: 'statistics', sql: 'sql_dump', bak: 'database_backup', dump: 'database_backup' };
+const WORKBOOK_EXT = new Set(['xlsx', 'xlsm']);
+const WORKBOOK_TYPES = new Set(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel.sheet.macroenabled.12']);
+/** A spreadsheet with no personal data, at most this large, stays in the folio (layouts, field maps, specs). */
+export const KEEP_SPREADSHEET_BYTES = 10 * 1024 * 1024;
+/** Sheets with no personal data and at most this many rows are copied whole into the summary. */
+export const FULL_SHEET_ROWS = 2000;
+const FULL_SHEET_CHARS = 1024 * 1024;
+const OPAQUE_EXT = { xls: 'spreadsheet', ods: 'spreadsheet', numbers: 'spreadsheet', parquet: 'parquet', avro: 'avro', orc: 'orc', sqlite: 'database', db: 'database', mdb: 'database', accdb: 'database', sav: 'statistics', dta: 'statistics', sql: 'sql_dump', bak: 'database_backup', dump: 'database_backup' };
 const COMPRESSED = /\.(csv|tsv|json|jsonl|ndjson|log|sql|txt)\.(gz|zip|bz2|xz|zst)$/i;
 const TABLE_TYPES = { 'text/csv': 'csv', 'text/tab-separated-values': 'tsv', 'application/x-ndjson': 'jsonl', 'application/jsonl': 'jsonl' };
 
@@ -49,8 +58,9 @@ export function dataFormat({ name = '', type = '', bytes } = {}) {
   const ext = extOf(name);
   const t = String(type || '').toLowerCase().split(';')[0].trim();
   if (COMPRESSED.test(name)) return { format: `compressed_${COMPRESSED.exec(name)[1].toLowerCase()}`, read: 'none' };
+  if (WORKBOOK_EXT.has(ext) || (!OPAQUE_EXT[ext] && WORKBOOK_TYPES.has(t))) return { format: 'spreadsheet', read: 'workbook' };
   if (OPAQUE_EXT[ext]) return { format: OPAQUE_EXT[ext], read: 'none' };
-  if (t === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || t === 'application/vnd.ms-excel') return { format: 'spreadsheet', read: 'none' };
+  if (t === 'application/vnd.ms-excel') return { format: 'spreadsheet', read: 'none' };
   const tableFormat = TABLE_EXT[ext] || TABLE_TYPES[t];
   if (tableFormat === 'json' || (!tableFormat && t === 'application/json')) {
     // Only JSON that is a list of records is data. A config or a single object is an ordinary file.
@@ -117,18 +127,22 @@ export async function summarizeData(bytes, meta = {}) {
   };
   try {
     if (fmt.read === 'table') summarizeTable(bytes, fmt.format, summary, meta);
+    else if (fmt.read === 'workbook') await summarizeWorkbook(bytes, summary, meta);
     else if (fmt.read === 'log') summarizeLog(bytes, summary, meta);
     else summary.notes.push(`${fmt.format.replace(/_/g, ' ')} files are not read here: only the name, size and type are recorded.`);
   } catch (e) {
     summary.notes.push(`Could not read the file as ${fmt.format}: ${e.message}`);
   }
   if (fmt.read === 'none' || summary.records === null) summary.pii.unknown = true; // unread: assume it may hold personal data
+  if (meta.spec) summary.spec = true;
   return summary;
 }
 
 /** May this file stay in the folio as an ordinary file? Small, read, and no personal data found. */
 export function keepInFolio(summary) {
   if (summary.pii.found || summary.pii.unknown) return false;
+  // A spreadsheet or a file marked as a spec, with no personal data: a layout, a field map. It belongs with the work.
+  if (summary.format === 'spreadsheet' || summary.spec) return summary.size <= KEEP_SPREADSHEET_BYTES;
   if (summary.size > KEEP_LIMITS.bytes) return false;
   if (summary.logs) return true;
   return summary.records !== null && summary.records <= KEEP_LIMITS.records;
@@ -186,12 +200,19 @@ function summarizeTable(bytes, format, summary, meta) {
   }
   if (bytes.length > HEAD_BYTES) summary.notes.push(`Fields and samples come from the first ${Math.round(HEAD_BYTES / 1024)} KB; records are counted over the whole file.`);
   summary.sampled_records = rows.length;
+  describeRows(columns, rows, summary, meta, format === 'csv' || format === 'tsv' ? 'csv' : 'json');
+}
 
+/**
+ * Fields, personal data and sample rows of a table (`rows`: [{ column: value }]), into `summary`: fields, pii
+ * (found, types, fields) and sample.
+ */
+function describeRows(columns, rows, summary, meta, sourceKind, assetPath = null) {
   // Classify each field from up to CLASSIFY_ROWS rows spread through the sampled part.
   const step = Math.max(1, Math.floor(rows.length / CLASSIFY_ROWS));
   const picked = rows.filter((_, i) => i % step === 0).slice(0, CLASSIFY_ROWS);
   const result = classify({
-    context: { assetId: summary.name, assetPath: summary.name.replace(/\.[^.]+$/, ''), sourceKind: format === 'csv' || format === 'tsv' ? 'csv' : 'json', siblingPaths: columns, sampling: { strategy: 'systematic', observedRows: picked.length, requestedRows: CLASSIFY_ROWS } },
+    context: { assetId: summary.name, assetPath: assetPath || summary.name.replace(/\.[^.]+$/, ''), sourceKind, siblingPaths: columns, sampling: { strategy: 'systematic', observedRows: picked.length, requestedRows: CLASSIFY_ROWS } },
     fields: columns.map((c) => ({ path: c, samples: picked.map((r, i) => ({ sampleId: String(i), value: scalar(r[c]) })) })),
   });
   const byPath = new Map(result.fields.map((f) => [f.path, f]));
@@ -235,6 +256,57 @@ function summarizeTable(bytes, format, summary, meta) {
     }))
   );
   // Personal data that sits inside otherwise ordinary fields (a "notes" column) was redacted from examples.
+}
+
+// ---- workbooks ----
+
+/**
+ * A workbook: every sheet with its name, the range it claims, how many rows really hold data, its header and
+ * fields (with personal data found per field), and masked sample rows. A sheet with no personal data and at most
+ * FULL_SHEET_ROWS rows comes through whole (`content`), so a layout or field map can be read from the folio.
+ * The first sheet with data also fills the summary's own fields and sample.
+ */
+async function summarizeWorkbook(bytes, summary, meta) {
+  const wb = await readWorkbook(bytes, { maxRows: FULL_SHEET_ROWS + 1 });
+  summary.notes.push(...wb.notes);
+  const piiTypes = new Set();
+  const piiFields = [];
+  let records = 0;
+  let main = null;
+  summary.sheets = wb.sheets.map((sh) => {
+    const out = { name: sh.name, ...(sh.hidden ? { hidden: true } : {}), rows: sh.row_count, ...(sh.dimension ? { range: sh.dimension } : {}) };
+    if (sh.note) out.note = sh.note;
+    if (sh.claimed_rows && sh.claimed_rows > sh.row_count + 1) out.note = [out.note, `claims ${sh.claimed_rows.toLocaleString('en-US')} rows (${sh.dimension}), but ${sh.row_count.toLocaleString('en-US')} hold data`].filter(Boolean).join('; ');
+    if (!sh.rows.length) return out;
+    const width = Math.min(MAX_FIELDS, Math.max(...sh.rows.slice(0, 200).map((r) => r.length)));
+    const header = uniqueNames(Array.from({ length: width }, (_, i) => sh.rows[0][i]));
+    const body = sh.rows.slice(1).map((r) => Object.fromEntries(header.map((c, i) => [c, r[i] === undefined || r[i] === '' ? null : r[i]])));
+    out.header = header;
+    out.data_rows = Math.max(0, sh.row_count - 1);
+    records += out.data_rows;
+    const part = { name: summary.name, fields: [], sample: [], pii: { found: false, types: [], fields: [] } };
+    if (body.length) describeRows(header, body, part, meta, 'csv', `${summary.name.replace(/\.[^.]+$/, '')}/${sh.name}`);
+    out.fields = part.fields;
+    out.sample = part.sample;
+    out.pii = { found: part.pii.found, types: part.pii.types, fields: part.pii.fields };
+    part.pii.types.forEach((t) => piiTypes.add(t));
+    piiFields.push(...part.pii.fields.map((f) => `${sh.name}!${f}`));
+    // No personal data in it: the whole sheet, so a layout or field map can be read here.
+    const text = sh.rows.map((r) => r.join('\t')).join('\n');
+    if (!part.pii.found && sh.row_count <= FULL_SHEET_ROWS && text.length <= FULL_SHEET_CHARS && !findCredentials(text).length) out.content = sh.rows;
+    else if (!part.pii.found && sh.row_count > FULL_SHEET_ROWS) out.content_note = `${sh.row_count.toLocaleString('en-US')} rows: too many to copy here; the sample shows the first ${part.sample.length}`;
+    if (!main && body.length) main = { header, part };
+    return out;
+  });
+  summary.records = records;
+  if (main) {
+    summary.fields = main.part.fields;
+    summary.sample = main.part.sample;
+  }
+  summary.header = true;
+  summary.pii.types = [...piiTypes].sort();
+  summary.pii.fields = piiFields;
+  summary.pii.found = piiTypes.size > 0;
 }
 
 /**
