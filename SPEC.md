@@ -233,6 +233,27 @@ The rules (3.8 has the detail):
 - **Access is granted on folders**, at any depth, and flows down (11.2). A folio needs no permission machinery of its own.
 - **Any folder can become a folio** by gaining a `folio.json`, and keeps its contents and any folios inside it.
 
+### 3.1.3 Context on folders
+
+What every folio for a client needs is set once on the client's folder and inherited by every folio inside it, so
+agents and new teammates read it instead of hunting for it (`context.js`):
+
+- **`folder.json`** beside a folder's `README.md`: `{ "format": "folio.folder", "connections": [...], "contacts":
+  [...], "client_approvers": [...] }`. A connection is a reference, like a folio's (3.2): `type` and `alias`, then
+  whatever names it (`account_id`, `url`, `host`, `site`), `role` (`source`, `destination`, `both`, `tool`) and
+  `credentials`, which says where a secret lives (a password-manager item), never the secret. Fields named like
+  secrets (`password`, `token`, `api_key`...) and values that look like credentials are refused. `contacts` are the
+  client's people (`name`, `email`, `role`, `answers`); `client_approvers` are the staff who approve and send client
+  messages (5.7.3).
+- **`AGENTS.md`** beside it: instructions for agents working on the client's folios.
+- **Inheritance**: the folders above a folio, top first; a nearer folder's connection replaces one with the same
+  alias, and the folio's own `connections` win over them all. Contacts merge; the nearest `client_approvers` win.
+  `mergeContext()` returns the result with each entry's `from` and the **slots** still unset (engine9 account, MCP
+  endpoint, source systems, destination systems, client contacts, client message approvers, agent instructions),
+  so a reviewer asks for exactly those at the start.
+- An engine9 account is a connection (`{ "type": "engine9", "account_id": ... }`), not a folder named after it:
+  the link between a client folder and an account is explicit.
+
 ### 3.2 `folio.json`
 
 `folio.json` is the machine-readable manifest at the folder root. It provides durable information such as:
@@ -504,18 +525,35 @@ An entry without `audience` is a **client**: the safe side, because telling a cl
 - **Per folio.** A folio inside another has its own list; nothing is inherited. Adding or removing a CC is a change to `folio.json` and recorded like any other (5.4). `folio.addCc()`, `removeCc()` and `ccs()` manage it; duplicates (same channel and address, ignoring case) are not added twice.
 - **A reference, not a connection.** Like a repository listing (3.2.1), a CC list works with no integration, and nothing in the folio sends anything. **Delivery is an optional add-on of each hosting deployment**, configured on the host, never in the folio (3.5, 10.3): a copied folio keeps its CC list without gaining the ability to message anyone. Hosts show each entry's live state (delivered on this deployment, or listed only); in the portable library every entry reads as `reference_only`.
 - **What a host passes on.** When delivery is set up, each new message in `comms/` (comments, updates, agents' reports, emails filed there) goes to the folio's **team** CCs, and a message with `to` also goes to exactly those **client** CCs; the CC a message came from never gets its own message back. Imported history is not passed on.
-- **Internal by default; the client is a deliberate choice.** Most messages are for the team, and writing to a client by accident is embarrassing. A host's composer starts on **Internal note**; **Message client** is a deliberate second choice that names each client contact (all ticked, any can be unticked), and the button names who will get it. Agents' messages are for the team unless they are told to send to the client.
+- **Internal by default; the client is a deliberate choice.** Most messages are for the team, and writing to a client by accident is embarrassing. A host's composer starts on **Internal note**; **Message client** is a deliberate second choice that names each client contact (all ticked, any can be unticked), and the button names who will get it. Agents never send to the client: they write drafts that a person approves (5.7.3).
 - **Replies are credited.** A message that comes back from a CC (a Slack reply, an SMS, an email from a CC'd address) is posted to `comms/` credited to that person or channel (3.1.2) via `folio.receive()`. Only listed CCs may post this way. A reply from a team CC is part of the team's conversation; a reply from a client CC is part of the client thread.
 
 #### 5.7.1 The client thread and its timing
 
 The common case: a request comes in from a client; someone acknowledges it at once; staff are assigned, work it and talk among themselves; the client gets an update now and then; and finally a **solved** message with a summary. The client's experience is the client thread, and its timing matters: a client must not wait too long.
 
-- **What is in it.** Messages sent to the client (`to`): direction `out`. Messages and emails from a client CC, and emails from anyone not on the team (the request that started it, a forwarded complaint): direction `in`. An email that someone on the team forwarded in counts as the client's when the message it forwards came from outside the team (`forwarded: true`, `forwarded_from`): that is how most tickets arrive. Hosts may say who else counts as the team (staff domains) so their emails are not taken for the client's.
+- **What is in it.** Messages sent to the client (`to`): direction `out`. Messages and emails from a client CC, and emails from anyone not on the team (the request that started it, a forwarded complaint): direction `in`. An email that someone on the team forwarded in counts as the client's when the message it forwards came from outside the team (`forwarded: true`, `forwarded_from`): that is how most tickets arrive. An email from the team to people outside it that copies the folio (a reply from someone's own mail) is direction `out` (`by_email`, `to_outside`); a reply that quotes the client's message is told from a forward by its recipients and subject. Hosts may say who else counts as the team (staff domains, and their own intake addresses) so their emails are not taken for the client's.
+- **Replied outside Folio.** A client answered by phone, in a meeting or from mail that did not copy the folio: `folio.markRepliedOutside(note, { at })` posts an update with `replied_outside: true`. The note is **required** (what the client was told, how and by whom), because it is the only record later readers have. It stays on the team's side (the client never sees it) but counts as an answer for the timing: `answered_outside` and `last_outside` in `clientThread()`.
 - **One conversation.** The client thread is not a separate place: it is interleaved with the team's messages in time order, so the people working the folio always see what the client has been told. Pages mark client messages clearly ("To Tim, Joe", "From Tim") and may filter to the client thread alone.
 - **Timing** (`clientThread(items)`, `folio.clientThread()`): `waiting` is `us` when the client's latest message is unanswered (since the first unanswered one) and `client` when the last word was ours (since then); plus `first_in`, `first_reply` (first response time), `last_in`, `last_out`, `unanswered`, `sent` and `received`. Hosts show it on the folio and its card, against a reply target they configure; a folio that is done needs no reply.
 - **Closing.** Sending the summary to the client and setting the status are one step in a host's composer ("Send and mark Done").
 - CC addresses are client and account contacts (3.7(3)); they are not secrets, and no credential or token for a channel belongs in the list.
+
+#### 5.7.3 Drafts: a person approves every client message
+
+A message to the client is approved by a person, as a property of the tools rather than a convention agents
+remember (`drafts.js`):
+
+- **Drafts.** `folio.draftClientMessage(text, { to })` writes `comms/drafts/<date>-<time>-<slug>.draft.json`
+  (`{ kind: "draft", at, author, via, text, to: "client" | [cc keys], attachments? }`). Drafts are seen by the team,
+  shown as "Draft awaiting approval", never by the client, and are not part of the conversation or its timing.
+  `drafts()`, `editDraft()` and `discardDraft()` manage them.
+- **Sending.** `folio.sendDraft(path, { text?, to? })` posts the draft as a message to the client CCs it names,
+  credited to the person sending, with `drafted: { by, at }` recording who wrote it, and removes the draft.
+- **Hosts.** folio-server lets agents only draft (`add_comment` refuses `to_client`). A person sends from the
+  folio's page, or tells an agent to with `folio_send_client`, a separate MCP tool teams never allowlist (it sends
+  only drafts, so the team has seen the message first). When the client's folder names `client_approvers` (3.1.3),
+  only they may send, from the composer or a draft.
 
 #### 5.7.2 What a client may see
 

@@ -87,7 +87,36 @@ to them. Never the team's notes, agents' reports, other files, the checklist, ta
   forwarded in, a message sent to the wrong folio): it stays in the conversation for the team, marked.
 - **Forwarded tickets count.** An email someone on the team forwards in is the client's when the message it forwards
   came from outside the team: the client's wait starts from it.
+- **Replies from your own mail count.** An email from the team to the client that copies the folio's address is a
+  reply on the client thread, and stops the clock.
+- **Answered some other way?** A call, a meeting, an email that did not copy the folio: mark it **Replied outside
+  Folio** with a note saying what the client was told, how and by whom. The note is required, because it is the
+  only record the next person will have. It stays with the team and stops the clock.
+- **A person approves every client message.** Agents write drafts (`draft_client_message`); a person reads, edits
+  and sends them from the folio's page ("Draft awaiting approval"), or tells the agent to send one with
+  `folio_send_client`, a separate tool teams never allowlist. When the client's folder names client approvers,
+  only they send.
 - Write messages to clients as you would an email from the team: they are signed by the team, not by you.
+
+### Client context
+
+What every piece of work for a client needs (SPEC 3.1.3) is set once on the client's folder and inherited by
+every folio inside it: `folder.json` (the folder's **Context** page) and an `AGENTS.md` beside it.
+
+| Slot | Example |
+| --- | --- |
+| engine9 account(s) | connection `{ "type": "engine9", "alias": "main", "account_id": "acme_main", "parent_account_id": "acme" }` |
+| MCP endpoint | connection `{ "type": "mcp", "alias": "engine9-data", "url": "https://data.engine9.ai/mcp" }` |
+| Source systems | connection with `"role": "source"`: host, folder, file pattern, `credentials` (the password-manager item) |
+| Destination systems | connection with `"role": "destination"`: CRM site, `credentials` (the password-manager item) |
+| Client contacts and roles | `contacts`: name, email, role, what they answer |
+| Client message approvers | `client_approvers`: staff emails |
+| Agent instructions | `AGENTS.md` on the client's folder |
+
+A folder inside can add or override a connection by its alias, and a folio's own `connections` win over both.
+Never a password, key or token: `credentials` says where one lives. `review_folio` and `get_context` show the
+context with what is still unset (`slots.unset`): ask the team for exactly those at the start and record the
+answers with `set_context`; ask the client (in a draft) only what only the client knows.
 
 ## Tasks
 
@@ -251,7 +280,11 @@ summary as an update or to create the next steps, and do it only when they say s
 - To find work, search (folio-server: `find_folios`, by words, folder, status, owner, tag or a waiting client); to
   understand one folio, read it whole in one call (`review_folio`). The connection's instructions are short; the full
   rules are this guide (`guide`).
-- Read `README.md`, `CONTEXT.md` and `AGENTS.md` first; they explain the folio and its conventions.
+- Read `README.md`, `CONTEXT.md` and `AGENTS.md` first; they explain the folio and its conventions. The client's
+  context (accounts, endpoints, systems, contacts, approvers, the client folder's `AGENTS.md`) comes with
+  `review_folio`; do not search for it. Ask the team for what `context.slots.unset` lists.
+- Never send to the client yourself. Draft (`draft_client_message`), tell the person, and send with
+  `folio_send_client` only when they say so.
 - Use `add_to_folio` for anything that comes from outside (a file, a link, text). It applies the rules
   above. Use `write_file` only for files you author yourself (notes, summaries, `CONTEXT.md`), and
   follow the same rules in them.

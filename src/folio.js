@@ -11,6 +11,7 @@ import { SubFs, normalizePath } from './fs.js';
 import { TEXT_FORMATS, textFormatOf } from './text-format.js';
 import { parseJsonText, planImport } from './import.js';
 import { COMMS_DIR, clientThread, isEmailPath, postMessage, readComms, setHiddenFromClient } from './comms.js';
+import { discardDraft, editDraft, listDrafts, readDraft, writeDraft } from './drafts.js';
 import { TASKS_DIR, TASK_FILE, TASK_OUTPUT_FILE, applyTaskUpdate, createTaskRecord, environmentLabel, isTaskId, isTerminalState, taskDirName, taskOutputText, taskStateLabel, taskSummary, taskTarget } from './tasks.js';
 import { CHECKLIST_FILE, checklistCounts, editChecklistText, findItem, parseChecklist } from './checklist.js';
 import { CC_AUDIENCES, MAX_CC, ccAudience, ccAuthor, ccKey, findCc, normalizeCc, parseCc } from './cc.js';
@@ -346,9 +347,70 @@ export class Folio {
    * the client: "client" (or true) for every client CC, or a list of CC keys or addresses, each a client CC on
    * this folio. The message records exactly who it went to.
    */
-  async post(kind, text, { attachments = [], actor = defaultActor, via = 'folio-lib', at, to = null } = {}) {
+  async post(kind, text, { attachments = [], actor = defaultActor, via = 'folio-lib', at, to = null, drafted = null } = {}) {
     const keys = to === null || to === undefined || to === false ? null : await this.clientRecipients(to);
-    return postMessage(this, { kind, text, attachments, actor, via, at, to: keys });
+    return postMessage(this, { kind, text, attachments, actor, via, at, to: keys, drafted });
+  }
+
+  // ---- drafts of client messages (drafts.js, SPEC 5.7.3) ----------------------
+
+  /** Drafts awaiting approval, oldest first. */
+  drafts() {
+    return listDrafts(this);
+  }
+
+  /** One draft: { path, etag, draft }. */
+  draft(path) {
+    return readDraft(this, path);
+  }
+
+  /**
+   * Draft a message to the client, for a person to approve and send (sendDraft). `to`: "client" (every client CC
+   * when it is sent) or CC keys or addresses. Nothing is sent. Returns { path, draft }.
+   */
+  draftClientMessage(text, { to = 'client', attachments = [], actor = defaultActor, via = 'folio-lib' } = {}) {
+    return writeDraft(this, { text, to, attachments, actor, via });
+  }
+
+  editDraft(path, { text, to, actor = defaultActor } = {}) {
+    return editDraft(this, path, { text, to, actor });
+  }
+
+  discardDraft(path) {
+    return discardDraft(this, path);
+  }
+
+  /**
+   * Send a draft to the client: posted to comms/ as a message to the client CCs it names (or `to`, or with `text`,
+   * if the sender changed them), crediting the sender and recording who drafted it. The draft is removed.
+   * Returns post()'s { path, message } with `draft` (the path it came from).
+   */
+  async sendDraft(path, { text, to, actor = defaultActor, via = 'folio-lib' } = {}) {
+    const cur = await readDraft(this, path);
+    const d = cur.draft;
+    const body = text !== undefined && String(text).trim() ? String(text) : d.text;
+    const r = await this.post('comment', body, { attachments: d.attachments || [], actor, via, to: to ?? d.to ?? 'client', drafted: { by: d.author || null, at: d.at } });
+    await this.fs.remove(cur.path).catch(() => {});
+    return { ...r, draft: cur.path };
+  }
+
+  /**
+   * The client was answered outside Folio (a phone call, an email that did not copy the folio). Stops the client's
+   * wait like a reply would, without sending anything. `note` is required: what was said, how and by whom, for the
+   * people who pick the folio up later. It stays with the team; the client never sees it. `at`: when they were
+   * answered (default now; not in the future). Returns post()'s { path, message }.
+   */
+  async markRepliedOutside(note, { at = null, actor = defaultActor, via = 'folio-lib' } = {}) {
+    const text = String(note ?? '').trim();
+    if (text.length < 10) throw new ValidationError('Say what the client was told, how and by whom (at least a sentence), for the people who pick this up later');
+    let when = null;
+    if (at) {
+      const t = Date.parse(at);
+      if (Number.isNaN(t)) throw new ValidationError('`at` is not a date');
+      if (t > Date.parse(this.now()) + 60_000) throw new ValidationError('`at` cannot be in the future');
+      when = new Date(t).toISOString();
+    }
+    return postMessage(this, { kind: 'update', text, actor, via, at: when, repliedOutside: true });
   }
 
   /** The keys of the client CCs `to` names: "client" or true for all of them, else keys or addresses. */
@@ -399,7 +461,7 @@ export class Folio {
     const items = await this.comms({ limit: 0, maxChars, cc, team, clean });
     return items
       .filter((m) => m.thread === 'client' && !m.hidden_from_client)
-      .map((m) => ({ path: m.path, at: m.at, kind: m.kind === 'email' ? 'email' : 'message', direction: m.direction, from: m.direction === 'in' ? clientName(m) : staffName(m.author, names), to: m.direction === 'out' ? m.to || [] : null, subject: m.subject || null, text: m.text, ...(m.truncated ? { truncated: true } : {}), attachments: m.kind === 'email' ? [] : (m.attachments || []).map(String) }));
+      .map((m) => ({ path: m.path, at: m.at, kind: m.kind === 'email' ? 'email' : 'message', direction: m.direction, from: m.direction === 'in' ? clientName(m) : m.kind === 'email' ? senderName(m.from) : staffName(m.author, names), to: m.direction === 'out' ? m.to || [] : null, subject: m.subject || null, text: m.text, ...(m.truncated ? { truncated: true } : {}), attachments: m.kind === 'email' ? [] : (m.attachments || []).map(String) }));
   }
 
   /** Keep a message or email in comms/ from the client, or show it again (SPEC 5.7.2). */
@@ -409,7 +471,7 @@ export class Folio {
 
   /** The timing of the client thread (comms.js clientThread): who is waiting on whom, and since when; null if none. */
   async clientThread({ cc, team = null } = {}) {
-    return clientThread(await this.comms({ limit: 0, maxChars: 1, cc, team }));
+    return clientThread(await this.comms({ limit: 0, maxChars: 500, cc, team }));
   }
 
   // ---- CC: people and channels kept informed (cc.js, spec 5.7) ------------------
@@ -914,6 +976,13 @@ function clientName(m) {
     return name || String(raw).replace(/^.*<([^>]+)>.*$/, '$1') || 'Email';
   }
   return m.author?.name || m.author?.id || 'Client';
+}
+
+/** The name on an email's From line, or one made from its address: what a client sees for a team member's email. */
+function senderName(from) {
+  const raw = String(from || '');
+  const name = /^\s*"?([^"<]*?)"?\s*<[^>]+>\s*$/.exec(raw)?.[1]?.trim();
+  return name || staffName({ type: 'user', id: raw.replace(/^.*<([^>]+)>.*$/, '$1') });
 }
 
 /** The name a client sees for someone on the team: never their address. */

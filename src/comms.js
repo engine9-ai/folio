@@ -82,7 +82,7 @@ export function messageName(at, text, kind) {
  * Write a message to comms/. Text is scrubbed of card numbers and credentials (spec 3.7). Returns
  * { path, message, removed? }.
  */
-export async function postMessage(folio, { kind = 'comment', text, attachments = [], actor, via = 'folio-lib', at = null, imported = null, ref = null, to = null, task = null }) {
+export async function postMessage(folio, { kind = 'comment', text, attachments = [], actor, via = 'folio-lib', at = null, imported = null, ref = null, to = null, task = null, drafted = null, repliedOutside = false }) {
   if (!MESSAGE_KINDS.includes(kind)) throw new ValidationError(`A message is one of ${MESSAGE_KINDS.join(', ')}`);
   if (!text || !String(text).trim()) throw new ValidationError('A message cannot be empty');
   if (to !== null && (!Array.isArray(to) || !to.length || to.some((k) => typeof k !== 'string' || !k))) throw new ValidationError('`to` lists the keys of the client CCs a message goes to');
@@ -99,6 +99,8 @@ export async function postMessage(folio, { kind = 'comment', text, attachments =
     ...(ref ? { ref } : {}),
     ...(to ? { to: [...new Set(to)] } : {}),
     ...(task ? { task } : {}),
+    ...(drafted ? { drafted } : {}),
+    ...(repliedOutside ? { replied_outside: true } : {}),
   };
   let name = messageName(when, clean, kind);
   if (ref) {
@@ -155,7 +157,7 @@ export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc 
       const fwd = forwardedHeaders(full);
       const cleaned = clean ? cleanEmailText(full) : null;
       const text = cleaned ? cleaned.text : full;
-      items.push({ kind, path, at: isoOf(h.date) || dateFromName(path), author: { type: 'email', id: h.from || null }, from: h.from || null, to_header: h.to || null, subject: h.subject || null, ...(fwd?.from ? { forwarded_from: fwd.from } : {}), text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(cleaned?.trimmed ? { cleaned: true } : {}) });
+      items.push({ kind, path, at: isoOf(h.date) || dateFromName(path), author: { type: 'email', id: h.from || null }, from: h.from || null, to_header: h.to || null, ...(h.cc ? { cc_header: h.cc } : {}), subject: h.subject || null, ...(fwd?.from ? { forwarded_from: fwd.from } : {}), text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(cleaned?.trimmed ? { cleaned: true } : {}) });
       continue;
     }
     if (!cur) continue;
@@ -170,7 +172,7 @@ export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc 
       continue;
     }
     const text = String(m.text || '');
-    items.push({ kind, path, at: m.at || dateFromName(path), author: m.author || { type: 'unknown' }, via: m.via, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(m.attachments ? { attachments: m.attachments } : {}), ...(Array.isArray(m.to) && m.to.length ? { to: m.to.map(String) } : {}), ...(m.imported ? { imported: m.imported } : {}), ...(m.task ? { task: m.task } : {}) });
+    items.push({ kind, path, at: m.at || dateFromName(path), author: m.author || { type: 'unknown' }, via: m.via, text: text.slice(0, maxChars), ...(text.length > maxChars ? { truncated: true } : {}), ...(m.attachments ? { attachments: m.attachments } : {}), ...(Array.isArray(m.to) && m.to.length ? { to: m.to.map(String) } : {}), ...(m.imported ? { imported: m.imported } : {}), ...(m.task ? { task: m.task } : {}), ...(m.drafted ? { drafted: m.drafted } : {}), ...(m.replied_outside ? { replied_outside: true } : {}) });
   }
   // Credit messages from the folio's CCs: an email from a CC'd address, a reply from a CC'd Slack channel.
   if (cc.length)
@@ -190,11 +192,15 @@ export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc 
 
 /**
  * Which thread an item is in. Sent to client CCs: client, out. From a client CC: client, in. An email from anyone
- * not on the team: client, in (the ticket that started it, a forwarded complaint). Everything else: team.
+ * not on the team: client, in (the ticket that started it, a forwarded complaint). An email from the team to someone
+ * outside it, with the folio CC'd (a reply sent from someone's own mail): client, out. A note that the client was
+ * answered outside Folio (replied_outside) stays with the team but counts as a reply for the timing. Everything
+ * else: team.
  */
 function threadOf(it, cc, team) {
   if (Array.isArray(it.to) && it.to.length) return { thread: 'client', direction: 'out' };
   if (it.kind === 'summary') return { thread: 'team' };
+  if (it.replied_outside) return { thread: 'team', counts_as_reply: true };
   const hit = it.cc ? cc.find((c) => ccKey(c) === it.cc) : null;
   if (hit) return ccAudience(hit) === 'team' ? { thread: 'team' } : { thread: 'client', direction: 'in' };
   if (it.kind === 'email') {
@@ -204,10 +210,30 @@ function threadOf(it, cc, team) {
     // Someone on the team forwarded it in: when the message they forwarded came from outside the team, it is the
     // client's (the ticket that started it), and the client is waiting from then.
     const original = it.forwarded_from ? authorChannel({ type: 'email', id: it.forwarded_from }) : null;
-    if (original && !ours(original)) return { thread: 'client', direction: 'in', forwarded: true };
+    const forwardOfClient = Boolean(original && !ours(original));
+    if (forwardOfClient && FORWARD_SUBJECT.test(it.subject || '')) return { thread: 'client', direction: 'in', forwarded: true };
+    // Someone on the team wrote to people outside it and copied the folio: that is an answer to the client (a reply
+    // quoting the client's message looks like a forward, so the recipients decide).
+    const outside = recipientsOf(it).filter((who) => !ours(who));
+    if (outside.length) return { thread: 'client', direction: 'out', by_email: true, to_outside: outside.map((w) => w.address) };
+    if (forwardOfClient) return { thread: 'client', direction: 'in', forwarded: true };
     return { thread: 'team' };
   }
   return { thread: 'team' };
+}
+
+const FORWARD_SUBJECT = /^\s*(?:\[[^\]]*\]\s*)?(?:fwd?|fw)\s*:/i;
+
+/** The people an email was sent to (To and Cc), as { channel: "email", address }. */
+function recipientsOf(it) {
+  const out = [];
+  for (const field of [it.to_header, it.cc_header]) {
+    for (const part of String(field || '').split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)) {
+      const who = authorChannel({ type: 'email', id: part.trim() });
+      if (who?.address && who.address.includes('@')) out.push(who);
+    }
+  }
+  return out;
 }
 
 async function readHidden(fs) {
@@ -266,8 +292,8 @@ export async function setHiddenFromClient(folio, path, hidden = true, { actor = 
  *     sent, received }                          counts each way
  */
 export function clientThread(items) {
-  const client = (items || []).filter((m) => m.thread === 'client' && m.at && !m.hidden_from_client);
-  if (!client.length) return null;
+  const client = (items || []).filter((m) => m.at && !m.hidden_from_client && (m.thread === 'client' || m.counts_as_reply));
+  if (!client.some((m) => m.thread === 'client')) return null;
   let first_in = null;
   let first_reply = null;
   let last_in = null;
@@ -276,9 +302,14 @@ export function clientThread(items) {
   let unanswered = 0;
   let sent = 0;
   let received = 0;
+  let answered_outside = 0;
+  let last_outside = null;
   for (const m of client) {
-    if (m.direction === 'out') {
-      sent++;
+    if (m.direction === 'out' || m.counts_as_reply) {
+      if (m.counts_as_reply) {
+        answered_outside++;
+        last_outside = { at: m.at, path: m.path, note: String(m.text || '').slice(0, 500), by: m.author?.on_behalf_of || m.author?.id || null };
+      } else sent++;
       last_out = m.at;
       if (first_in && !first_reply) first_reply = m.at;
       pending = null;
@@ -292,7 +323,7 @@ export function clientThread(items) {
     }
   }
   const waiting = pending ? 'us' : 'client';
-  return { waiting, since: pending || last_out, first_in, first_reply, last_in, last_out, unanswered, sent, received };
+  return { waiting, since: pending || last_out, first_in, first_reply, last_in, last_out, unanswered, sent, received, ...(answered_outside ? { answered_outside, last_outside } : {}) };
 }
 
 function isoOf(d) {
