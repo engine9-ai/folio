@@ -165,6 +165,32 @@ function urlFromShortcut(name, text) {
  * What kind of item is this? Pure: reads only the item. Returns { kind, ... }.
  * A text of several URLs classifies as { kind: 'urls', urls }; add() splits it.
  */
+/**
+ * A link to an email in a mail client, which is what some clients put in a drag instead of the email itself:
+ * Apple Mail's `message:%3C<message-id>%3E`, Outlook's `outlook:` / `ms-outlook:` and `x-msg:` links, `mid:`.
+ * Returns { client, message_id } or null. Only the email's Message-ID can be read from it.
+ */
+export function mailClientLink(text) {
+  const t = String(text ?? '').trim();
+  if (!t || /\s/.test(t)) return null;
+  const m = /^(message|mid|outlook|ms-outlook|x-msg|mailbox|imap):(.+)$/i.exec(t);
+  if (!m) return null;
+  let rest = m[2];
+  try {
+    rest = decodeURIComponent(rest);
+  } catch {
+    /* keep it as it is */
+  }
+  const scheme = m[1].toLowerCase();
+  const client = scheme === 'message' ? 'Apple Mail' : /outlook|x-msg/.test(scheme) ? 'Outlook' : 'your mail client';
+  const id = /<([^<>\s]+@[^<>\s]+)>/.exec(rest)?.[1] || (/^[^\s/]+@[^\s/]+$/.test(rest.replace(/^\/\//, '')) ? rest.replace(/^\/\//, '') : null);
+  return { client, scheme, message_id: id, link: t };
+}
+
+/** How to get an email into a folio when a mail client dragged only a link to it. */
+const MAIL_LINK_STEPS = 'To file the email: drag it to your desktop or Finder first (that saves an .eml file) and drop that file here, or forward the email to this folio’s address.';
+export const MAIL_LINK_HELP = `The mail client gave Folio only a link to the email (its Message-ID), not the email. ${MAIL_LINK_STEPS}`;
+
 export function classify(item = {}) {
   const viaUrl = (url) => {
     const repository = repositoryFromUrl(url);
@@ -178,6 +204,8 @@ export function classify(item = {}) {
     const text = String(item.text ?? '');
     if (!text.trim()) throw new ValidationError('Nothing to add');
     if (!as) {
+      const mail = mailClientLink(text);
+      if (mail) return { kind: 'mail_link', ...mail };
       const urls = urlsIn(text);
       if (urls.length === 1) return viaUrl(urls[0]);
       if (urls.length > 1) return { kind: 'urls', urls };
@@ -269,15 +297,31 @@ export function intakeChoices(item = {}, { folder } = {}) {
     choices.push({ as: 'json', label: 'JSON (.json)' });
     textChoices();
   } else {
-    const kinds = { repository: 'Repository link', link: 'Web link', urls: 'Links', email: 'Email', data: 'Data file or log', file: 'File', refused: 'Refused', skipped: 'Skipped' };
-    const places = { repository: 'folio.json repositories', link: 'sources/links/', urls: 'one entry per link', email: 'comms/', data: 'a summary in sources/data/', file: folder ? `${folder}/` : 'attachments/', refused: 'not stored', skipped: 'not stored' };
+    const kinds = { repository: 'Repository link', link: 'Web link', urls: 'Links', email: 'Email', data: 'Data file or log', file: 'File', refused: 'Refused', skipped: 'Skipped', mail_link: `A link to an email in ${c.client}, not the email` };
+    const places = { repository: 'folio.json repositories', link: 'sources/links/', urls: 'one entry per link', email: 'comms/', data: 'a summary in sources/data/', file: folder ? `${folder}/` : 'attachments/', refused: 'not stored', skipped: 'not stored', mail_link: 'nothing to store' };
     label = kinds[c.kind] || c.kind;
+    if (c.kind === 'mail_link') {
+      // Saving the link as a note is still offered (a reminder of which email it was), but is not the default.
+      return { ...c, label, where: places.mail_link, as: 'auto', warning: MAIL_LINK_HELP, choices: [{ as: 'auto', label: 'Nothing (it is only a link)' }, ...Object.keys(TEXT_FORMATS).map((f) => ({ as: f, label: `Save the link as ${fmtLabel(f)}` }))] };
+    }
     where = places[c.kind] || '';
     if (text && ['repository', 'link', 'urls', 'email'].includes(c.kind)) textChoices();
     if (!text && c.kind === 'file' && textFormatOf(item.name)) for (const f of Object.keys(TEXT_FORMATS)) choices.push({ as: f, label: fmtLabel(f) });
   }
   if (choices.length && !choices.some((x) => x.as === as) && as !== 'auto') as = choices[0].as;
   return { ...c, label, where, as, choices: choices.length > 1 ? choices : [] };
+}
+
+/** The path of an email in comms/ with this Message-ID, or null. */
+export async function findEmailByMessageId(folio, id) {
+  const want = String(id || '').replace(/^<|>$/g, '').trim().toLowerCase();
+  if (!want) return null;
+  for (const p of (await folio.fs.list('comms')).filter((x) => /^comms\/[^/]+\.eml$/i.test(x))) {
+    const cur = await folio.fs.read(p).catch(() => null);
+    const head = cur ? parseEmailHeaders(cur.text.slice(0, 65536)) : null;
+    if (String(head?.message_id || '').replace(/[<>]/g, '').trim().toLowerCase() === want) return p;
+  }
+  return null;
 }
 
 // ---- placement ----
@@ -331,6 +375,12 @@ export async function addItem(folio, item, { folder, actor = { type: 'unknown' }
   const record = (extra) => writeIntakeRecord(folio, { actor, via, ...extra });
   const itemLabel = item.path || item.name || 'item';
 
+  if (c.kind === 'mail_link') {
+    // Already here (forwarded in, say)? Then say where; otherwise explain how to bring the email itself.
+    const found = c.message_id ? await findEmailByMessageId(folio, c.message_id) : null;
+    if (found) return [{ kind: 'skipped', name: c.link, path: found, duplicate: true, summary: `That email is already in this folio: ${found}` }];
+    throw new ValidationError(`${c.client} gave only a link to the email${c.message_id ? ` (Message-ID ${c.message_id})` : ''}, not the email itself. ${MAIL_LINK_STEPS}`);
+  }
   if (c.kind === 'skipped') return [{ kind: 'skipped', name: itemLabel, summary: `Skipped ${itemLabel}: code and tooling folders belong in a repository (list it in the folio instead)` }];
   if (c.kind === 'refused')
     return [{ kind: 'refused', name: itemLabel, summary: `Refused ${itemLabel}: folios must not hold keys or credentials. Record where it lives in your password manager instead.` }];

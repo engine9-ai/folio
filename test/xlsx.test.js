@@ -87,3 +87,22 @@ test('a held spreadsheet can be kept as a spec later, from its original', async 
   const forced = await folio.keepAsSpec(pii.path, fixture('samples'), { actor, force: true });
   assert.deepEqual(forced.summary.kept_as_spec.despite, ['EMAIL', 'PERSON_NAME', 'STREET_ADDRESS']);
 });
+
+test('a mail client link (Apple Mail message:) is not saved as a note', async () => {
+  const { mailClientLink, intakeChoices } = await import('../src/index.js');
+  const link = 'message:%3CEA3PR16MB3610155EC09B06885E86B92537EE732@EA3PR16MB361015.namprd16.prod.outlook.com%3E';
+  assert.deepEqual(mailClientLink(link).message_id, 'EA3PR16MB3610155EC09B06885E86B92537EE732@EA3PR16MB361015.namprd16.prod.outlook.com');
+  assert.equal(mailClientLink('https://example.com'), null);
+  const c = intakeChoices({ text: link });
+  assert.equal(c.kind, 'mail_link');
+  assert.match(c.warning, /drag it to your desktop/);
+  const fs = new MemoryFs();
+  await Folio.init(fs, { title: 'Mail', now, actor });
+  const folio = new Folio(fs, { now });
+  await assert.rejects(folio.add({ text: link }, { actor }), /Apple Mail gave only a link to the email/);
+  await folio.add({ text: 'From: Tim <t@x.org>\r\nTo: c@y.com\r\nSubject: Hi\r\nMessage-ID: <EA3PR16MB3610155EC09B06885E86B92537EE732@EA3PR16MB361015.namprd16.prod.outlook.com>\r\nDate: Mon, 16 Nov 2026 10:00:00 +0000\r\n\r\nHello\r\n' }, { actor });
+  const [again] = await folio.add({ text: link }, { actor });
+  assert.match(again.summary, /already in this folio: comms\//);
+  const [saved] = await folio.add({ text: link, as: 'text' }, { actor });
+  assert.equal(saved.kind, 'note');
+});

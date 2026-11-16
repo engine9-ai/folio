@@ -1,6 +1,6 @@
 export { EDITABLE, Folio, externalOf, mapLimit, staffName } from './folio.js';
 export { DONE_STATUSES, FOLIO_TYPES, READINESS_STATES, RELATIONSHIP_TYPES, RESERVED_TYPES, findCycle, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
-export { INTAKE_AS, INTAKE_KINDS, classify, intakeChoices, repositoryFromUrl, safeName, slugify, urlsIn } from './intake.js';
+export { INTAKE_AS, INTAKE_KINDS, MAIL_LINK_HELP, classify, intakeChoices, mailClientLink, repositoryFromUrl, safeName, slugify, urlsIn } from './intake.js';
 export { TEXT_FORMATS, detectTextFormat, htmlToText, textFormatOf, titleOfText } from './text-format.js';
 export { IMPORTERS, IMPORT_FORMATS, MAX_IMPORT_ITEMS, detectImport, parseJsonText, planImport } from './import.js';
 export { CC_AUDIENCES, CC_AUDIENCE_LABELS, CC_CHANNELS, CC_CHANNEL_LABELS, CC_KINDS, MAX_CC, authorChannel, ccAudience, ccAuthor, ccChannelLabel, ccKey, findCc, normalizeCc, parseCc, validateCc } from './cc.js';
