@@ -376,6 +376,17 @@ A folio inside a folio is a separate record, as if it sat anywhere else:
 - Folio's own directories (`comms/`, `attachments/`, `sources/`, `notes/`, `history/`, `indexes/`, `feedback/`, `artifacts/`, `decisions/`, `integrations/`, `samples/`, `tasks/`) never hold nested folios. A `folio.json` filed under them (inside an uploaded folder, say) is just a file.
 - Making a folder inside a folio into a folio moves its files out of the outer folio's view, not out of the folder tree.
 
+### 3.9 Trash
+
+Files and folders in a folio are not deleted straight away: they move to the folio's Trash (`trash.js`), as in a
+desktop file manager, and can be put back until the Trash is emptied. Each move is one entry,
+`.trash/<id>/trash.json` (`{ id, at, by, path, kind: "file" | "folder", files }`), with the files under
+`.trash/<id>/files/<old path>`. Restoring puts them back (as "name 2" when the place is taken again); emptying
+deletes them for good. `folio.json`, the top-level `README.md`, task records (`tasks/`) and the Trash itself cannot
+be moved there; sub-folios are archived or moved like any folio. `.trash/` is left out of file listings, search and
+the conversation. Hosts may let anyone who can write to the folio use the Trash, and only people who manage it empty
+it. A message or email moved to the Trash leaves the conversation (and the client's timing) until it is put back.
+
 ## 4. Folio lifecycle and organisation
 
 ### 4.1 Create

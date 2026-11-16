@@ -12,6 +12,7 @@ import { TEXT_FORMATS, textFormatOf } from './text-format.js';
 import { parseJsonText, planImport } from './import.js';
 import { COMMS_DIR, clientThread, isEmailPath, postMessage, readComms, setHiddenFromClient } from './comms.js';
 import { discardDraft, editDraft, listDrafts, readDraft, writeDraft } from './drafts.js';
+import { emptyTrash, listTrash, moveToTrash, restoreFromTrash } from './trash.js';
 import { TASKS_DIR, TASK_FILE, TASK_OUTPUT_FILE, applyTaskUpdate, createTaskRecord, environmentLabel, isTaskId, isTerminalState, taskDirName, taskOutputText, taskStateLabel, taskSummary, taskTarget } from './tasks.js';
 import { CHECKLIST_FILE, checklistCounts, editChecklistText, findItem, parseChecklist } from './checklist.js';
 import { CC_AUDIENCES, MAX_CC, ccAudience, ccAuthor, ccKey, findCc, normalizeCc, parseCc } from './cc.js';
@@ -350,6 +351,26 @@ export class Folio {
   async post(kind, text, { attachments = [], actor = defaultActor, via = 'folio-lib', at, to = null, drafted = null } = {}) {
     const keys = to === null || to === undefined || to === false ? null : await this.clientRecipients(to);
     return postMessage(this, { kind, text, attachments, actor, via, at, to: keys, drafted });
+  }
+
+  // ---- the Trash (trash.js, SPEC 3.5) -----------------------------------------
+
+  /** Move a file or folder to the folio's Trash (it can be put back until the Trash is emptied). */
+  moveToTrash(path, { actor = defaultActor } = {}) {
+    return moveToTrash(this, path, { actor });
+  }
+
+  trash() {
+    return listTrash(this);
+  }
+
+  restoreFromTrash(id, { actor = defaultActor } = {}) {
+    return restoreFromTrash(this, id, { actor });
+  }
+
+  /** Delete for good: one Trash entry, or (no id) everything in the Trash. */
+  emptyTrash(id = null) {
+    return emptyTrash(this, id);
   }
 
   // ---- drafts of client messages (drafts.js, SPEC 5.7.3) ----------------------
@@ -955,7 +976,7 @@ export class Folio {
     const q = String(query || '').toLowerCase();
     if (!q) return [];
     const hits = [];
-    const paths = (await this.fs.list()).filter((path) => !path.startsWith('indexes/') && TEXT_EXT.test(path));
+    const paths = (await this.fs.list()).filter((path) => !path.startsWith('indexes/') && !path.startsWith('.trash/') && TEXT_EXT.test(path));
     const files = await mapLimit(paths, READS, (path) => this.fs.read(path));
     for (const [i, path] of paths.entries()) {
       const cur = files[i];

@@ -201,6 +201,15 @@ and other people the client serves are not the folio's business, even when a que
 unavoidable and acceptable; crop to what matters where it is easy, and do not screenshot to get around
 these rules.
 
+## Removing things
+
+Every file and folder in a folio has **Move to Trash** (and ⌘⌫ / Delete in the files view): it goes to the folio's
+Trash, where it can be put back or deleted for good when the Trash is emptied. Messages and emails in the
+conversation, links, data summaries and notes are files too, so they work the same way. What is not a file has its
+own control: repositories (Remove), CCs, relationships, checklist items, drafts (Discard). folio.json, README.md
+and task records cannot be trashed; archive the folio instead. Agents: `move_to_trash` and `restore_from_trash`,
+only when the person asked.
+
 ## Data files and logs
 
 Exports, query results and logs will be sent: by email, dragged in, uploaded by agents. Each one is
