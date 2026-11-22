@@ -133,11 +133,63 @@ export function changeFolderContext(current = {}, patch = {}) {
   return normalizeFolderContext({ connections, contacts, client_approvers });
 }
 
+/** How near a connection was set: the folio's own first, then the deepest folder. */
+const nearness = (from) => (from === 'folio' ? Infinity : String(from || '').split('/').filter(Boolean).length);
+
+const accountOf = (c) => ({
+  account_id: c.account_id,
+  ...(c.parent_account_id ? { parent_account_id: c.parent_account_id } : {}),
+  alias: c.alias,
+  ...(c.from ? { from: c.from } : {}),
+});
+
+/**
+ * The one engine9 account a folio's work is for (SPEC 3.1.4), from merged connections (each with `from`). The
+ * engine9 connections set nearest the folio decide: its own, else the deepest folder that has any. One there is the
+ * account; of several, the one marked `primary: true`. Otherwise there is no account yet (`account_id: null`) and
+ * `candidates` lists the ones to choose from. Returns { account_id, parent_account_id?, alias?, from?, candidates }.
+ */
+export function resolveAccount(connections = []) {
+  const accounts = (connections || []).filter((c) => c && c.type === 'engine9' && typeof c.account_id === 'string' && c.account_id);
+  const candidates = accounts.map(accountOf);
+  if (!accounts.length) return { account_id: null, candidates };
+  const near = Math.max(...accounts.map((c) => nearness(c.from)));
+  const nearest = accounts.filter((c) => nearness(c.from) === near);
+  const primary = nearest.filter((c) => c.primary === true);
+  const chosen = nearest.length === 1 ? nearest[0] : primary.length === 1 ? primary[0] : null;
+  return chosen ? { ...accountOf(chosen), candidates } : { account_id: null, candidates };
+}
+
+/**
+ * Make `account_id` the account in a list of connections set in one place (a folio's own, or one folder's): its
+ * engine9 connection is added if missing (alias: the account id) and marked `primary`; the mark comes off the
+ * others. Returns the new list.
+ */
+export function setAccountIn(connections = [], { account_id, parent_account_id } = {}) {
+  const id = String(account_id || '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(id)) throw new ValidationError('account_id must be an engine9 account id (letters, numbers, _ . -)');
+  const parent = parent_account_id === undefined || parent_account_id === null || parent_account_id === '' ? null : String(parent_account_id).trim();
+  let found = false;
+  const list = (connections || []).map((c) => {
+    if (c.type !== 'engine9') return c;
+    const { primary: _was, ...rest } = c;
+    if (c.account_id !== id || found) return rest;
+    found = true;
+    return { ...rest, ...(parent ? { parent_account_id: parent } : {}), primary: true };
+  });
+  if (!found) {
+    const taken = new Set(list.map((c) => String(c.alias).toLowerCase()));
+    const alias = taken.has(id.toLowerCase()) ? `${id}-account` : id;
+    list.push({ type: 'engine9', alias, account_id: id, ...(parent ? { parent_account_id: parent } : {}), primary: true });
+  }
+  return list.map(normalizeConnection);
+}
+
 /**
  * The context a folio works in: its folders' contexts, nearest last (`layers`: [{ path, context, agents }], top
  * first, where `agents` is true when that folder has an AGENTS.md), then the folio's own connections and AGENTS.md.
- * Returns { connections, contacts, client_approvers, agents, slots: { set, unset } }, each connection and contact
- * with `from` (the folder it was set on, or "folio").
+ * Returns { connections, contacts, client_approvers, agents, account, slots: { set, unset } }, each connection and
+ * contact with `from` (the folder it was set on, or "folio"). `account` is resolveAccount() of the connections.
  */
 export function mergeContext(layers = [], { connections: own = [], agents: ownAgents = false, path = null } = {}) {
   const byAlias = new Map();
@@ -158,6 +210,7 @@ export function mergeContext(layers = [], { connections: own = [], agents: ownAg
   for (const c of own || []) byAlias.set(String(c.alias).toLowerCase(), { ...c, from: 'folio' });
   if (ownAgents) agents.push({ path: AGENTS_FILE, from: 'folio', ...(path ? { folder: path } : {}) });
   const merged = { connections: [...byAlias.values()], contacts: [...contacts.values()], client_approvers, approvers_from, agents };
+  merged.account = resolveAccount(merged.connections);
   const set = [];
   const unset = [];
   for (const s of CONTEXT_SLOTS) (s.test(merged) ? set : unset).push(s.key);

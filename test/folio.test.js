@@ -134,6 +134,52 @@ test('repositories: listed as references, normalised, de-duplicated, persisted i
   assert.equal((await folio.repositories()).length, 2);
 });
 
+test('links: folio.json links, saved links and repositories in one list, each URL once', async () => {
+  const { folio } = await make();
+  await folio.edit({ links: [{ type: 'site', label: 'Donate page', url: 'https://example.org/donate' }, { label: 'Spec', path: 'notes/spec.md' }] }, { actor });
+  await folio.add({ url: 'https://example.org/donate' }, { actor });
+  await folio.add({ url: 'https://status.example.org/', name: 'Status' }, { actor });
+  await folio.add({ url: 'https://github.com/engine9-ai/folio-server/pull/12' }, { actor });
+  const links = await folio.links();
+  assert.deepEqual(
+    links.map((l) => [l.source, l.url || l.path]),
+    [
+      ['folio', 'https://example.org/donate'],
+      ['folio', 'notes/spec.md'],
+      ['saved', 'https://status.example.org/'],
+      ['repository', 'https://github.com/engine9-ai/folio-server'],
+      ['reference', 'https://github.com/engine9-ai/folio-server/pull/12'],
+    ],
+  );
+  assert.equal(links[0].label, 'Donate page');
+  assert.equal(links[2].label, 'Status');
+  assert.match(links[2].file, /^sources\/links\/.+\.json$/);
+  assert.equal(links[4].label, 'engine9-ai/folio-server pull #12');
+});
+
+test('flows: listed by reference, one entry per flow, and a flow recorded by its file gains its flow_id', async () => {
+  const { folio } = await make();
+  const source = 'engine9-accounts/acme/acme_main/import/import.flow.json5';
+  const first = await folio.addFlow({ account_id: 'acme_main', source, name: 'Import donors', purpose: 'Nightly SFTP file to the CRM' }, { actor });
+  assert.equal(first.added, true);
+  assert.equal(first.flow.added_by, actor.id);
+  // Published: the same source now carries the platform's id. One entry, updated.
+  const published = await folio.addFlow({ account_id: 'acme_main', source, flow_id: '6af4ad1236f3b41fa3a050dc' }, { actor });
+  assert.equal(published.added, false);
+  assert.deepEqual([published.flow.flow_id, published.flow.name, published.flow.added_at], ['6af4ad1236f3b41fa3a050dc', 'Import donors', first.flow.added_at]);
+  await folio.addFlow({ account_id: 'acme_pac', flow_id: '6af4ad1236f3b41fa3a050dc' }, { actor });
+  assert.deepEqual((await folio.flows()).map((f) => f.account_id), ['acme_main', 'acme_pac']);
+  assert.equal((await folio.overview()).flows.length, 2);
+  await assert.rejects(() => folio.addFlow({ flow_id: 'x1' }, { actor }), /account_id/);
+  await assert.rejects(() => folio.addFlow({ account_id: 'acme_main' }, { actor }), /flow_id.*source/);
+  await assert.rejects(() => folio.addFlow({ account_id: 'acme_main', source: 'https://user:hunter2@example.org/x.flow.json5' }, { actor }), /secret|credentials/);
+  await folio.removeFlow({ flow_id: '6af4ad1236f3b41fa3a050dc', account_id: 'acme_pac' }, { actor });
+  assert.deepEqual((await folio.flows()).map((f) => f.account_id), ['acme_main']);
+  await assert.rejects(() => folio.removeFlow({ source: 'nope' }, { actor }));
+  await folio.removeFlow({ source }, { actor });
+  assert.equal((await folio.manifest()).manifest.flows, undefined);
+});
+
 test('parseGithubUrl understands the references a folio might cite', () => {
   assert.deepEqual(parseGithubUrl('https://github.com/a/b/pull/12').ref, { kind: 'pull', number: 12 });
   assert.deepEqual(parseGithubUrl('https://github.com/a/b/issues/3').ref, { kind: 'issue', number: 3 });

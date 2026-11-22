@@ -118,6 +118,19 @@ Never a password, key or token: `credentials` says where one lives. `review_foli
 context with what is still unset (`slots.unset`): ask the team for exactly those at the start and record the
 answers with `set_context`; ask the client (in a draft) only what only the client knows.
 
+### The account and the flows
+
+**Every folio for engine9 work has one account** (SPEC 3.1.4). `review_folio`, `get_folio_overview` and
+`get_context` all give it as `account_id` (with `account.parent_account_id`). When it is `null`, nobody has said
+which account the work is for: look at `account.candidates` and the folio's notes, ask if it is not stated, and
+record it with `set_account` (on the folio, or on the client's folder when every folio there shares it). Do not
+guess an account id.
+
+**List the flows built for the work** with `add_flow` (SPEC 3.2.2): the account, the flow's file (`source`)
+while it is being built and its `flow_id` once it is published, a name and a sentence on what it does. Add it
+again when it is published; the entry is updated. The definition stays on the platform or in its repository;
+runs are tasks (below); on the platform a run's tag carries `folio:<folio id>`.
+
 ## Tasks
 
 A **task** is one run of a well-defined piece of work on an execution platform: engine9's task, copied as it is

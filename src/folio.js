@@ -1,6 +1,7 @@
 import { ConflictError, NotFoundError, ValidationError } from './errors.js';
 import { FOLIO_STATUS_PATTERN, createManifest, newFolioId, validateManifest } from './manifest.js';
 import { addRepositoryTo, describeRepository, removeRepositoryFrom, repositoryKey } from './repositories.js';
+import { removeFlowFrom, upsertFlowIn } from './flows.js';
 import { RELATIONSHIP_TYPES, RESERVED_TYPES, RESERVED_TYPE_MESSAGE, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
 import { validateFolio } from './validate.js';
 import { addItem, classify, createUnique, intakeChoices, keepAsSpec, slugify, writeIntakeRecord } from './intake.js';
@@ -241,6 +242,52 @@ export class Folio {
     return (manifest.repositories || []).map(describeRepository);
   }
 
+  /**
+   * Every URL the folio points at, in one list: `links` in folio.json, links saved under
+   * sources/links/, and listed repositories with the references recorded on them. Each is
+   * { url | path, label, source: 'folio' | 'saved' | 'repository' | 'reference', type?, added_at?,
+   * added_by?, file? }; the same URL is listed once (folio.json first, then saved, then repositories).
+   */
+  async links() {
+    const { manifest } = await this.manifest();
+    const out = [];
+    const seen = new Set();
+    const push = (l) => {
+      const key = l.url ? `url:${l.url}` : `path:${l.path}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(l);
+    };
+    for (const l of manifest.links || []) {
+      if (!l || (typeof l.url !== 'string' && typeof l.path !== 'string')) continue;
+      push({ ...(l.url ? { url: l.url } : { path: l.path }), label: l.label || l.url || l.path, source: 'folio', ...(l.type ? { type: l.type } : {}) });
+    }
+    const saved = (await this.fs.list('sources/links')).filter((p) => p.endsWith('.json')).sort();
+    const files = await mapLimit(saved, READS, async (p) => {
+      const f = await this.fs.read(p).catch(() => null);
+      try {
+        return f ? { file: p, ...JSON.parse(f.text) } : null;
+      } catch {
+        return null;
+      }
+    });
+    for (const f of files) {
+      if (!f || typeof f.url !== 'string') continue;
+      push({ url: f.url, label: f.title || f.url, source: 'saved', file: f.file, ...(f.added_at ? { added_at: f.added_at } : {}), ...(f.added_by ? { added_by: f.added_by } : {}) });
+    }
+    for (const r of manifest.repositories || []) {
+      const url = r.url || (r.provider === 'github' && r.repository ? `https://github.com/${r.repository}` : null);
+      const name = r.repository || url;
+      if (url) push({ url, label: name, source: 'repository', type: 'repository', ...(r.purpose ? { purpose: r.purpose } : {}), ...(r.added_at ? { added_at: r.added_at } : {}) });
+      for (const ref of r.references || []) {
+        if (!ref?.url) continue;
+        const what = ref.number != null ? `#${ref.number}` : ref.tag || ref.name || ref.path || (ref.sha ? String(ref.sha).slice(0, 7) : '');
+        push({ url: ref.url, label: `${name} ${ref.kind || 'reference'}${what ? ` ${what}` : ''}`, source: 'reference', type: ref.kind || 'reference', ...(ref.added_at ? { added_at: ref.added_at } : {}) });
+      }
+    }
+    return out;
+  }
+
   async addRepository(input, { actor } = {}) {
     const { manifest, etag } = await this.manifest();
     const repositories = addRepositoryTo(manifest.repositories || [], input, { now: this.now() });
@@ -275,6 +322,32 @@ export class Folio {
     const repositories = removeRepositoryFrom(manifest.repositories || [], input);
     if (repositories.length === (manifest.repositories || []).length) throw new NotFoundError('That repository entry');
     await this.updateManifest({ repositories }, { ifMatch: etag, actor });
+  }
+
+  // ---- flows (references to the flows built for this work) ---------------------
+
+  /** The flows listed on this folio (SPEC 3.2.2): [{ account_id, flow_id?, source?, name?, purpose?, added_at }]. */
+  async flows() {
+    const { manifest } = await this.manifest();
+    return (manifest.flows || []).map((f) => ({ ...f }));
+  }
+
+  /**
+   * List a flow built for this work, or update its entry (same account and flow_id, or same source: a flow
+   * recorded by its file gains its flow_id when it is published). Returns { flow, added }.
+   */
+  async addFlow(input, { actor = defaultActor, via = 'folio-lib' } = {}) {
+    const { manifest, etag } = await this.manifest();
+    const { flows, flow, added } = upsertFlowIn(manifest.flows || [], input, { now: this.now(), actor });
+    await this.updateManifest({ flows }, { ifMatch: etag, actor, via });
+    return { flow, added };
+  }
+
+  /** Stop listing a flow, by { flow_id | source, account_id? }. The flow itself is untouched. */
+  async removeFlow(ref, { actor = defaultActor, via = 'folio-lib' } = {}) {
+    const { manifest, etag } = await this.manifest();
+    const flows = removeFlowFrom(manifest.flows || [], ref);
+    await this.updateManifest({ flows: flows.length ? flows : undefined }, { ifMatch: etag, actor, via });
   }
 
   // ---- folios inside this one ---------------------------------------------------
@@ -965,6 +1038,7 @@ export class Folio {
       ready: kids.filter((c) => c.readiness.ready).map((c) => ({ id: c.id, dir: c.dir, title: c.title, type: c.type, tags: c.tags })),
       tags: [...new Set([...normalizeTags(manifest.tags), ...kids.flatMap((c) => c.tags)])].sort((a, b) => a.localeCompare(b)),
       repositories: (manifest.repositories || []).map(describeRepository),
+      flows: (manifest.flows || []).map((f) => ({ ...f })),
       cc: (manifest.cc || []).map((c) => ({ ...c, audience: ccAudience(c), key: ccKey(c), integration_state: 'reference_only' })),
       connections: (manifest.connections || []).map((c) => ({ ...c, integration_state: 'reference_only' })),
       checklist: { done: list.done, total: list.total, items: list.items },

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ValidationError, changeFolderContext, mergeContext, normalizeFolderContext } from '../src/index.js';
+import { ValidationError, changeFolderContext, mergeContext, normalizeFolderContext, resolveAccount, setAccountIn } from '../src/index.js';
 
 test('a folder context keeps references, never secrets', () => {
   const c = normalizeFolderContext({ connections: [{ type: 'Engine9', alias: 'habitat', account_id: 'allegiance_habitat' }, { type: 'sftp', alias: 'drop', role: 'source', host: 'sftp.example.org', credentials: '1Password: Clients/HFHI SFTP' }], contacts: ['Tim Thornburg <Tim@Example.org>'], client_approvers: ['Chris@Engine9.ai'] });
@@ -28,4 +28,34 @@ test('changes add or replace by alias and email; folios inherit, nearest wins, a
   assert.deepEqual(m.agents, [{ path: 'habitat/AGENTS.md', from: 'habitat' }]);
   assert.deepEqual(m.slots.unset.map((s) => s.key), ['destination']);
   assert.equal(changeFolderContext(top, { remove_connections: ['E9'], remove_contacts: ['tim@example.org'], client_approvers: [] }).connections.length, 1);
+});
+
+test('the account: the engine9 connections nearest the folio decide; several need one marked primary', () => {
+  const e9 = (alias, account_id, extra = {}) => ({ type: 'engine9', alias, account_id, ...extra });
+  assert.deepEqual(resolveAccount([]), { account_id: null, candidates: [] });
+  // One on the client folder is the account of every folio inside.
+  const one = mergeContext([{ path: 'acme', context: { connections: [e9('main', 'acme_main', { parent_account_id: 'acme' })] } }]);
+  assert.deepEqual(one.account, { account_id: 'acme_main', parent_account_id: 'acme', alias: 'main', from: 'acme', candidates: [{ account_id: 'acme_main', parent_account_id: 'acme', alias: 'main', from: 'acme' }] });
+  // Several in one place and none marked: no account yet, and the choices are listed.
+  const two = mergeContext([{ path: 'acme', context: { connections: [e9('main', 'acme_main'), e9('pac', 'acme_pac')] } }]);
+  assert.equal(two.account.account_id, null);
+  assert.deepEqual(two.account.candidates.map((c) => c.account_id), ['acme_main', 'acme_pac']);
+  // A nearer folder decides over the client folder; the folio's own decides over both.
+  const nearer = mergeContext([{ path: 'acme', context: { connections: [e9('main', 'acme_main'), e9('pac', 'acme_pac')] } }, { path: 'acme/pac', context: { connections: [e9('this', 'acme_pac')] } }]);
+  assert.deepEqual([nearer.account.account_id, nearer.account.from], ['acme_pac', 'acme/pac']);
+  const own = mergeContext([{ path: 'acme', context: { connections: [e9('main', 'acme_main')] } }], { connections: setAccountIn([], { account_id: 'acme_pac', parent_account_id: 'acme' }) });
+  assert.deepEqual([own.account.account_id, own.account.parent_account_id, own.account.from], ['acme_pac', 'acme', 'folio']);
+  assert.equal(own.account.candidates.length, 2);
+});
+
+test('setAccountIn marks one engine9 connection primary, adding it when it is not listed', () => {
+  const start = [{ type: 'engine9', alias: 'main', account_id: 'acme_main', primary: true }, { type: 'engine9', alias: 'pac', account_id: 'acme_pac' }, { type: 'sftp', alias: 'drop', role: 'source' }];
+  const picked = setAccountIn(start, { account_id: 'acme_pac' });
+  assert.deepEqual(picked.map((c) => [c.alias, c.primary]), [['main', undefined], ['pac', true], ['drop', undefined]]);
+  assert.equal(resolveAccount(picked.map((c) => ({ ...c, from: 'folio' }))).account_id, 'acme_pac');
+  const added = setAccountIn(picked, { account_id: 'acme_c4', parent_account_id: 'acme' });
+  assert.deepEqual(added.at(-1), { type: 'engine9', alias: 'acme_c4', account_id: 'acme_c4', parent_account_id: 'acme', primary: true });
+  assert.equal(added.filter((c) => c.primary).length, 1);
+  assert.throws(() => setAccountIn([], { account_id: '' }), ValidationError);
+  assert.throws(() => setAccountIn([], { account_id: 'not an id' }), ValidationError);
 });

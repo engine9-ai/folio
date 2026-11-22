@@ -254,6 +254,26 @@ agents and new teammates read it instead of hunting for it (`context.js`):
 - An engine9 account is a connection (`{ "type": "engine9", "account_id": ... }`), not a folder named after it:
   the link between a client folder and an account is explicit.
 
+### 3.1.4 The account
+
+Work for an engine9 client is done in one engine9 account, and everything else (where tasks run, which flows
+belong to the work, what a tool opens) hangs off it. So every folio has at most one **account**, and every read of
+a folio's context says it the same way: `account_id`, with `account` giving `parent_account_id`, the connection's
+`alias`, where it was set (`from`) and the `candidates`.
+
+The account is not a second field. It is resolved from the `engine9` connections (`resolveAccount()` in
+`context.js`):
+
+1. The engine9 connections set nearest the folio decide: the folio's own, else those of the deepest folder that
+   has any.
+2. One connection there is the account. Of several, the one marked `"primary": true` is.
+3. Otherwise there is no account yet: `account_id` is `null` and `candidates` lists the engine9 connections to
+   choose from. A reader asks which one, and records the answer.
+
+Setting the account (`setAccountIn()`; the hosted `set_account` operation) marks that account's engine9
+connection `primary` on the folio (or on a folder, for every folio inside), adding the connection when it is not
+listed there. A client folder with one engine9 connection needs nothing more: every folio inside has that account.
+
 ### 3.2 `folio.json`
 
 `folio.json` is the machine-readable manifest at the folder root. It provides durable information such as:
@@ -263,7 +283,7 @@ agents and new teammates read it instead of hunting for it (`context.js`):
 - Lifecycle status, type, owner, target date, tags, and relationships to other folios (5.1).
 - Creation and last meaningful update timestamps.
 - Optional key dates.
-- Optional non-secret repository references, connection aliases, and related external URLs.
+- Optional non-secret repository references, flow references (3.2.2), connection aliases, and related external URLs.
 - Optional pointers to noteworthy files or current artifacts.
 - A declared folio data-format revision for readers that understand structured fields.
 
@@ -325,6 +345,31 @@ Rules:
 4. Folios and decisions may cite a specific branch, file, commit, pull request, release or issue within a listed repository; the cited repository should be listed.
 5. Live state ("connected", "requires authorisation") is computed by a hosting service and is never written into the folio. In the portable library every entry reads as `reference_only`.
 6. Material GitHub discussions or issues are captured under `sources/github/` with their live reference, as in 8.3.
+
+### 3.2.2 Flow listing
+
+A folio lists the flows built or changed to do its work, in the `flows` array of `folio.json` (`flows.js`). Like
+a repository listing, **an entry is a reference**: the definition lives on the execution platform or in a
+repository, never in the folio, and listing a flow runs nothing. Runs of a flow are tasks (5.8).
+
+| Field | Required | Meaning |
+|---|---|---|
+| `account_id` | yes | The engine9 account the flow belongs to (usually the folio's account, 3.1.4). |
+| `flow_id` | one of these | The flow's id on the platform, once it is published there. |
+| `source` | one of these | Where the flow's file lives: a path in a repository (`engine9-accounts/<org>/<account>/<dir>/<name>.flow.json5`), `github:<org>/<repo>@<branch>:<path>`, or a URL. Must not embed credentials. |
+| `name`, `purpose` | no | What it is called and what it does for this work, in a sentence. |
+| `added_at`, `added_by`, `updated_at` | no | Provenance. |
+
+Rules:
+
+1. One entry per flow: the same account with the same `flow_id`, or the same `source`. Adding it again updates
+   the entry, which is how a flow recorded by its file while it is being built gains its `flow_id` when it is
+   published.
+2. A tool that opens flows (engine9 Conductor) builds its link from `account_id` with `flow_id` or `source`,
+   and the folio's id. The link is not stored: it is the tool's to form.
+3. A run started for a folio carries `folio:<folio id>` in its tag on the platform, so the folio's runs can be
+   found there, and is recorded as a task when it matters to the work. A platform that keeps one tag per run
+   puts it after its own marker (engine9: `e9-step:folio:<folio id>` for a step-through run).
 
 ### 3.3 `README.md`, `CONTEXT.md`, and `AGENTS.md`
 
