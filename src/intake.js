@@ -6,7 +6,7 @@ import { describeRemoved, prohibitedIn, scrubText } from './privacy.js';
 import { parseGithubUrl, repositoryKey } from './repositories.js';
 import { TEXT_FORMATS, detectTextFormat, textFormatOf, titleOfText } from './text-format.js';
 import { detectImport, parseJsonText } from './import.js';
-import { COMMS_DIR, isEmailPath, postMessage, setEmailSummary } from './comms.js';
+import { COMMS_DIR, HIDDEN_FILE, isEmailPath, postMessage, setEmailSummary } from './comms.js';
 
 /**
  * Intake: decide where something added to a folio belongs, then put it there.
@@ -503,6 +503,69 @@ export async function addItem(folio, item, { folder, actor = { type: 'unknown' }
 }
 
 /**
+ * Bring emails filed before 1.9 (the .eml or .msg itself in comms/) to the current layout (SPEC 8.1): a record in
+ * comms/, the email itself in sources/email/, its attachments as files. Who filed each one, and how, come from its
+ * intake record in history/intake/, as do the held original and the attachments of a text copy. Messages kept from
+ * the client (comms/hidden.json) and links in folio.json follow. Nothing is posted and no host is told: these are not
+ * new emails. Returns { upgraded: [{ from, path, original, attachments }] }.
+ */
+export async function upgradeEmails(folio, { actor = { type: 'unknown' }, via = 'folio-lib/upgrade' } = {}) {
+  const fs = folio.fs;
+  const legacy = (await fs.list(COMMS_DIR)).filter((p) => isEmailPath(p) && !/\.email\.json$/i.test(p));
+  if (!legacy.length) return { upgraded: [] };
+  const want = new Set(legacy);
+  const filings = new Map();
+  for (const p of (await fs.list('history/intake')).sort()) {
+    try {
+      const r = JSON.parse((await fs.read(p))?.text || 'null');
+      if (r?.kind === 'email' && want.has(r.path) && !filings.has(r.path)) filings.set(r.path, r);
+    } catch {
+      /* skip unreadable records */
+    }
+  }
+  const day = (iso) => String(iso || folio.now()).slice(0, 10);
+  const record = (extra) => writeIntakeRecord(folio, { actor, via, ...extra });
+  const upgraded = [];
+  for (const from of legacy) {
+    const cur = typeof fs.readBytes === 'function' ? await fs.readBytes(from) : null;
+    const bytes = cur?.bytes ?? (await fs.read(from).then((t) => (t ? enc.encode(t.text) : null)));
+    if (!bytes) continue;
+    const name = from.split('/').pop();
+    const format = /\.msg$/i.test(name) ? 'msg' : 'eml';
+    const stem = name.slice(0, -(format.length + 1));
+    const filed = filings.get(from);
+    const held = filed?.privacy?.held?.where === 'held' ? filed.privacy.held : null;
+    const attachments = (filed?.privacy?.attachments || []).filter((a) => a?.path).map((a) => ({ name: a.name, path: a.path, ...(String(a.path).startsWith('sources/data/') ? { data: true } : {}) }));
+    const [r] = await fileEmail(folio, { name, data: bytes }, { kind: 'email', format }, { actor, via, record, day, upgrade: { from, stem: /^\d{4}-\d{2}-\d{2}-./.test(stem) ? stem : null, actor: filed?.actor || null, via: filed?.via || null, held, attachments } });
+    await fs.remove(from);
+    upgraded.push({ from, path: r.path, original: r.original, attachments: r.attachments });
+  }
+  await followMoves(folio, upgraded, { actor, via });
+  return { upgraded };
+}
+
+/** After emails move: comms/hidden.json names their records, and folio.json links point at the emails themselves. */
+async function followMoves(folio, moved, { actor, via }) {
+  const fs = folio.fs;
+  const toRecord = new Map(moved.map((m) => [m.from, m.path]));
+  const toEmail = new Map(moved.map((m) => [m.from, m.original]));
+  const hidden = await fs.read(HIDDEN_FILE).catch(() => null);
+  if (hidden) {
+    try {
+      const data = JSON.parse(hidden.text);
+      if ((data.paths || []).some((p) => toRecord.has(p))) {
+        data.paths = [...new Set(data.paths.map((p) => toRecord.get(p) || p))].sort();
+        await fs.write(HIDDEN_FILE, json(data), { ifMatch: hidden.etag, contentType: 'application/json' });
+      }
+    } catch {
+      /* an unreadable hidden.json is left as it is */
+    }
+  }
+  const { manifest } = await folio.manifest();
+  if ((manifest.links || []).some((l) => toEmail.has(l.path))) await folio.updateManifest({ links: manifest.links.map((l) => (toEmail.has(l.path) ? { ...l, path: toEmail.get(l.path) } : l)) }, { actor, via });
+}
+
+/**
  * Keep a data file that was held (its summary at `path` in sources/data/) as a spec: the original `bytes` (from
  * the host's temporary storage) go to attachments/, and the summary is read again and rewritten to say so. Refused
  * when personal data is found, unless `force` (a person has looked and it is a layout's examples, say), which is
@@ -613,14 +676,14 @@ export function emailSummary(text, { actor = null, by = null, at }) {
  * written by whoever is filing it (an agent that read the thread, say); a host may add one later
  * (setEmailSummary).
  */
-async function fileEmail(folio, item, c, { actor, via, record, day }) {
+async function fileEmail(folio, item, c, { actor, via, record, day, upgrade = null }) {
   const fs = folio.fs;
   const bytes = toBytes(item.data ?? item.text);
   const eml = c.format === 'eml';
   const headers = eml ? parseEmailHeaders(peek(bytes, 65536)) || {} : {};
   const h = await shortHash(headers.message_id ? headers.message_id.trim() : bytes);
   const what = headers.subject ? `“${headers.subject}”` : 'the email';
-  const existing = (await fs.list(COMMS_DIR)).find((p) => isEmailPath(p) && p.includes(`-${h}.`));
+  const existing = (await fs.list(COMMS_DIR)).find((p) => p !== upgrade?.from && isEmailPath(p) && p.includes(`-${h}.`));
   if (existing) {
     // Filed already (forwarded in, say): a summary brought with it now is still worth keeping.
     let summarised = false;
@@ -629,8 +692,9 @@ async function fileEmail(folio, item, c, { actor, via, record, day }) {
   }
   const at = isoDate(headers.date) || folio.now();
   const slug = slugify(headers.subject || (item.name || '').replace(/\.[^.]+$/, ''), 48) || 'email';
-  const stem = `${day(at)}-${slug}-${h}`;
-  const path = `${COMMS_DIR}/${stampOf(at)}-${slug}-${h}.email.json`;
+  // An email filed before 1.9 keeps its name (its date, subject and hash), so links to it are easy to follow.
+  const stem = upgrade?.stem || `${day(at)}-${slug}-${h}`;
+  const path = `${COMMS_DIR}/${stampOf(at)}-${upgrade?.stem ? upgrade.stem.slice(11) : `${slug}-${h}`}.email.json`;
   const original = { path: `${EMAIL_SOURCES}/${stem}.${c.format}`, received_size: bytes.byteLength };
   const attachments = [];
   const extra = [];
@@ -643,10 +707,17 @@ async function fileEmail(folio, item, c, { actor, via, record, day }) {
     const raw = binaryString(bytes);
     const utf8 = peek(bytes, bytes.length);
     const body = parseEmail(utf8)?.text || '';
-    removed = prohibitedIn(`${headers.subject || ''}\n${body}`);
+    // A text copy Folio made earlier (an email filed before 1.9, a held email taken in) is already scrubbed and has
+    // no attachments: it is kept as it is, with what its filing said about the original and the attachments.
+    const madeCopy = /^X-Folio-Copy:/im.test(rawHeaderBlock(utf8));
+    removed = madeCopy ? {} : prohibitedIn(`${headers.subject || ''}\n${body}`);
     const textCopy = Object.keys(removed).length > 0;
+    if (madeCopy) {
+      Object.assign(original, { copy: 'text', held: upgrade?.held || { where: 'not_kept' } });
+      attachments.push(...(upgrade?.attachments || []));
+    }
     const placed = new Map();
-    for (const part of emailFileParts(raw).filter(detachable)) {
+    for (const part of madeCopy ? [] : emailFileParts(raw).filter(detachable)) {
       const data = part.bytes();
       const name = safeName(part.name);
       if (dataFormat({ name, type: part.type, bytes: data })) {
@@ -664,7 +735,9 @@ async function fileEmail(folio, item, c, { actor, via, record, day }) {
       placed.set(part.index, { path: p, sha256: hex(await crypto.subtle.digest('SHA-256', data)) });
     }
     let kept = bytes;
-    if (textCopy) {
+    if (madeCopy) {
+      /* kept as it is */
+    } else if (textCopy) {
       // The email carries what a folio must not hold: keep a text copy, hold the original.
       const held = await holdBytes(folio, bytes, { name: `${stem}.eml`, type: 'message/rfc822', actor, via });
       kept = enc.encode(emailCopy(utf8, { removed, body }, held, attachments));
@@ -684,12 +757,13 @@ async function fileEmail(folio, item, c, { actor, via, record, day }) {
   for (const [k, v] of Object.entries(headers)) head[k] = typeof v === 'string' ? scrubText(v).text : v;
   const summary = item.summary ? emailSummary(item.summary, { actor, at: folio.now() }) : null;
   const sender = emailAddress(headers.from) || headers.from || null;
+  const filer = upgrade ? upgrade.actor : actor;
   const entry = {
     at,
     kind: 'email',
     author: { type: 'email', id: sender },
-    via,
-    ...(actor && actor.type !== 'unknown' && actor.id !== sender ? { filed_by: summaryBy(actor) } : {}),
+    via: upgrade?.via || via,
+    ...(filer && filer.type !== 'unknown' && filer.id !== sender ? { filed_by: summaryBy(filer) } : {}),
     headers: head,
     ...(fwd ? { forwarded: Object.fromEntries(['from', 'to', 'cc', 'date', 'subject'].filter((k) => fwd[k]).map((k) => [k, fwd[k]])) } : {}),
     text,
@@ -700,6 +774,11 @@ async function fileEmail(folio, item, c, { actor, via, record, day }) {
     original,
   };
   await fs.write(path, json(entry), { ifMatch: null, contentType: 'application/json' });
+  if (upgrade) {
+    // Not news: the email was filed before. Only the move is recorded.
+    await record({ kind: 'email_upgraded', from: upgrade.from, path, original: original.path, ...(attachments.length ? { attachments: attachments.map((a) => a.path) } : {}) });
+    return [{ kind: 'email', path, original: original.path, attachments: attachments.map((a) => a.path), email: headers, upgraded_from: upgrade.from, summary: `Moved ${what} to ${original.path}, with its record at ${path}` }, ...extra];
+  }
   await record({ kind: 'email', path, original: original.path, original_name: item.name, email: headers, ...(attachments.length ? { attachments: attachments.map((a) => a.path) } : {}), ...(Object.keys(removed).length || original.copy === 'text' || original.not_read ? { privacy: { removed, ...(original.held ? { held: original.held } : {}), ...(original.not_read ? { scanned: false } : {}) } } : {}) });
   if (folio.onMessage) {
     // Tell the host (it may pass the email on to the folio's CCs, or summarise it): the text as filed, never a held original.

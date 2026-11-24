@@ -217,3 +217,50 @@ test('8-bit bodies in other charsets are kept byte for byte when attachments lea
   const n = head.length + latin.length;
   assert.deepEqual(kept.subarray(0, n), raw.subarray(0, n));
 });
+
+test('emails filed before 1.9 are brought to the current layout, keeping who filed them, links and what the client may see', async () => {
+  const { fs, folio } = await make();
+  const legacy = 'comms/2026-11-24-renewal-report-1a2b3c4d.eml';
+  await fs.write(legacy, enc(WITH_FILES), { contentType: 'message/rfc822' });
+  await fs.write('history/intake/20261124T100000Z-aaaa.json', JSON.stringify({ at: '2026-11-24T10:00:00.000Z', actor: { type: 'person', channel: 'email', id: 'chris@agency.example' }, via: 'folio-server/mailbox', kind: 'email', path: legacy, email: {} }));
+  await folio.hideFromClient(legacy, true, { actor });
+  await folio.edit({ links: [{ type: 'source', label: 'The report email', path: legacy }] }, { actor, via: 'test' });
+
+  // A text copy made before 1.9: its original was held, its attachments filed.
+  const copy = 'comms/2026-11-03-donor-list-5e6f7a8b.eml';
+  await fs.write(copy, 'From: Pat <pat@client.example>\r\nSubject: Donor list\r\nDate: Tue, 03 Nov 2026 09:00:00 +0000\r\nMessage-ID: <d1@client.example>\r\nX-Folio-Copy: text copy; removed 1 card number; original held until 2026-12-03\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHere is the export.\r\n-- \r\nFolio kept this text copy.\r\n', { contentType: 'message/rfc822' });
+  await fs.write('sources/data/2026-11-03-donors-cafe0001.json', '{}');
+  await fs.write('history/intake/20261103T090000Z-bbbb.json', JSON.stringify({ at: '2026-11-03T09:00:00.000Z', actor, via: 'folio-server/web', kind: 'email', path: copy, privacy: { copy: true, removed: { card: 1 }, held: { where: 'held', key: 'k1', expires_at: '2026-12-03T09:00:00.000Z' }, attachments: [{ name: 'donors.csv', path: 'sources/data/2026-11-03-donors-cafe0001.json', summary: 'Summarised' }] } }));
+
+  const messages = [];
+  folio.onMessage = (m) => messages.push(m);
+  const { upgraded } = await folio.upgradeEmails({ actor: agent });
+  assert.equal(upgraded.length, 2);
+  assert.deepEqual(messages, [], 'not news');
+  assert.ok(!(await fs.exists(legacy)) && !(await fs.exists(copy)));
+
+  const a = upgraded.find((u) => u.from === legacy);
+  assert.equal(a.path, 'comms/2026-11-24-091500-renewal-report-1a2b3c4d.email.json');
+  assert.equal(a.original, 'sources/email/2026-11-24-renewal-report-1a2b3c4d.eml');
+  assert.equal(a.attachments.length, 2);
+  const rec = JSON.parse((await fs.read(a.path)).text);
+  assert.deepEqual(rec.filed_by, { type: 'person', id: 'chris@agency.example' });
+  assert.equal(rec.via, 'folio-server/mailbox');
+  assert.equal(rec.original.copy, 'attachments_as_files');
+  assert.deepEqual(JSON.parse((await fs.read('comms/hidden.json')).text).paths, [a.path]);
+  const { manifest } = await folio.manifest();
+  assert.equal(manifest.links[0].path, a.original);
+
+  const b = upgraded.find((u) => u.from === copy);
+  const brec = JSON.parse((await fs.read(b.path)).text);
+  assert.equal(brec.original.copy, 'text');
+  assert.equal(brec.original.held.key, 'k1');
+  assert.deepEqual(brec.attachments, [{ name: 'donors.csv', path: 'sources/data/2026-11-03-donors-cafe0001.json', data: true }]);
+  assert.equal(brec.text, 'Here is the export.');
+
+  const items = await folio.comms();
+  assert.deepEqual(items.map((i) => i.kind), ['email', 'email']);
+  assert.equal(items.find((i) => i.path === a.path).hidden_from_client, true);
+  assert.deepEqual((await folio.upgradeEmails({ actor: agent })).upgraded, [], 'a second run has nothing to do');
+  assert.equal((await folio.validate()).ok, true);
+});

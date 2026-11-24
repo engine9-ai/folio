@@ -4,7 +4,7 @@ import { addRepositoryTo, describeRepository, removeRepositoryFrom, repositoryKe
 import { removeFlowFrom, upsertFlowIn } from './flows.js';
 import { RELATIONSHIP_TYPES, RESERVED_TYPES, RESERVED_TYPE_MESSAGE, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
 import { validateFolio } from './validate.js';
-import { addItem, classify, createUnique, intakeChoices, keepAsSpec, slugify, writeIntakeRecord } from './intake.js';
+import { addItem, classify, createUnique, intakeChoices, keepAsSpec, slugify, upgradeEmails, writeIntakeRecord } from './intake.js';
 import { buildEmail, detachedFiles, parseEmail } from './email.js';
 import { scrubText } from './privacy.js';
 import { ExcludingFs, canHoldFolio, nestedFolioDirs } from './nested.js';
@@ -858,6 +858,14 @@ export class Folio {
       throw new ValidationError(e.message);
     }
     return addItem(this, { name: 'message.eml', type: 'message/rfc822', data: bytes, ...(fields.summary ? { summary: fields.summary } : {}) }, { actor, via });
+  }
+
+  /**
+   * Bring emails filed before 1.9 (an .eml in comms/) to the current layout (intake.js upgradeEmails). Returns
+   * { upgraded: [{ from, path, original, attachments }] }; nothing to do gives an empty list.
+   */
+  upgradeEmails({ actor = defaultActor, via = 'folio-lib/upgrade' } = {}) {
+    return upgradeEmails(this, { actor, via });
   }
 
   /**
