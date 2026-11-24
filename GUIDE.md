@@ -74,8 +74,6 @@ lines they actually wrote, and a summary. Filing one writes three things (SPEC 8
 
 The same email filed twice is recognised by its Message-ID and kept once. Moving an email to the Trash takes
 its attachments along.
-An email filed before this layout (the `.eml` itself in `comms/`) is still read; `upgrade_emails` (MCP) or
-`folio.upgradeEmails()` moves it to the layout above.
 
 **Summaries.** A summary is two to four plain sentences: what the sender needs or reports, the concrete details
 (amounts, dates, errors, file names), and what they expect next. For an email that carries a thread, summarise the
