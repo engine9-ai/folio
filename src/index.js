@@ -24,7 +24,7 @@ export {
 } from './tasks.js';
 export { DRAFTS_DIR, isDraftPath } from './drafts.js';
 export { TRASH_DIR, isTrashPath, trashRefusal } from './trash.js';
-export { AGENTS_FILE, CONTEXT_SLOTS, FOLDER_FILE, FOLDER_FORMAT, changeFolderContext, mergeContext, normalizeConnection, normalizeFolderContext, resolveAccount, setAccountIn } from './context.js';
+export { AGENTS_FILE, CONTEXT_SLOTS, FOLDER_FILE, FOLDER_FORMAT, changeContacts, changeFolderContext, mergeContext, normalizeConnection, normalizeContact, normalizeContacts, normalizeFolderContext, resolveAccount, setAccountIn } from './context.js';
 export { MAX_FLOWS, normalizeFlow, removeFlowFrom, sameFlow, upsertFlowIn, validateFlows } from './flows.js';
 export { COMMS_DIR, COMMS_KINDS, HIDDEN_FILE, MESSAGE_KINDS, clientThread, commsKindOf, isEmailPath, setHiddenFromClient } from './comms.js';
 export { ExcludingFs, RESERVED_DIRS, canHoldFolio, nestedFolioDirs } from './nested.js';

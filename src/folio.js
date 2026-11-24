@@ -1025,7 +1025,7 @@ export class Folio {
 
   /**
    * The folio at a glance: its manifest and readiness, the folios inside it by state, those ready to start,
-   * tags in use, repositories, connections, its checklist, and its tasks (counts and the latest ten).
+   * tags in use, repositories, connections, contacts, its checklist, and its tasks (counts and the latest ten).
    */
   async overview({ statusOf } = {}) {
     const [{ manifest }, kids, taskList, list] = await Promise.all([this.manifest(), this.children({ statusOf }), this.tasks(), this.checklist()]);
@@ -1041,6 +1041,7 @@ export class Folio {
       flows: (manifest.flows || []).map((f) => ({ ...f })),
       cc: (manifest.cc || []).map((c) => ({ ...c, audience: ccAudience(c), key: ccKey(c), integration_state: 'reference_only' })),
       connections: (manifest.connections || []).map((c) => ({ ...c, integration_state: 'reference_only' })),
+      contacts: (manifest.contacts || []).map((c) => ({ ...c })),
       checklist: { done: list.done, total: list.total, items: list.items },
       tasks: { total: taskList.length, open: taskList.filter((t) => !t.done).length, overdue: taskList.filter((t) => t.overdue).length, recent: taskList.slice(-10) },
     };

@@ -86,6 +86,13 @@ export function validateManifest(m) {
         if (!c || typeof c.alias !== 'string' || typeof c.type !== 'string') err('connection_shape', 'connection needs type and alias', `folio.json#connections[${i}]`);
       });
   }
+  if (m.contacts !== undefined) {
+    if (!Array.isArray(m.contacts)) err('contacts_not_array', 'contacts must be an array');
+    else
+      m.contacts.forEach((c, i) => {
+        if (!c || typeof c !== 'object' || (typeof c.name !== 'string' && typeof c.email !== 'string')) err('contact_shape', 'contact needs a name or an email', `folio.json#contacts[${i}]`);
+      });
+  }
   problems.push(...validateRepositories(m.repositories));
   problems.push(...validateFlows(m.flows));
   problems.push(...validateCc(m.cc));

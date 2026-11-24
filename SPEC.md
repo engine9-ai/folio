@@ -246,8 +246,13 @@ agents and new teammates read it instead of hunting for it (`context.js`):
   client's people (`name`, `email`, `role`, `answers`); `client_approvers` are the staff who approve and send client
   messages (5.7.3).
 - **`AGENTS.md`** beside it: instructions for agents working on the client's folios.
-- **Inheritance**: the folders above a folio, top first; a nearer folder's connection replaces one with the same
-  alias, and the folio's own `connections` win over them all. Contacts merge; the nearest `client_approvers` win.
+- **A folio is a folder too**: its `folio.json` takes `connections` and `contacts` of its own (same shapes as
+  `folder.json`), for the people on one piece of work who are not on every folio for the client, and an `AGENTS.md`
+  beside it. `client_approvers` stay on folders.
+- **Inheritance**: the folders above a folio, top first (a folio above it counts, with its own connections and
+  contacts); a nearer folder's connection replaces one with the same alias, and the folio's own `connections` win
+  over them all. Contacts merge by email (else name), the nearest (the folio's own last) winning; the nearest
+  `client_approvers` win.
   `mergeContext()` returns the result with each entry's `from` and the **slots** still unset (engine9 account, MCP
   endpoint, source systems, destination systems, client contacts, client message approvers, agent instructions),
   so a reviewer asks for exactly those at the start.
@@ -314,6 +319,9 @@ Illustrative manifest:
   ],
   "connections": [
     { "type": "mcp", "alias": "support-data", "purpose": "Read customer support context" }
+  ],
+  "contacts": [
+    { "name": "Dana Example", "email": "dana@example.org", "role": "Portal product owner", "answers": "sign-in requirements" }
   ]
 }
 ```

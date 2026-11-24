@@ -114,6 +114,9 @@ every folio inside it: `folder.json` (the folder's **Context** page) and an `AGE
 | Agent instructions | `AGENTS.md` on the client's folder |
 
 A folder inside can add or override a connection by its alias, and a folio's own `connections` win over both.
+A folio is a folder too: it can have `contacts` of its own (the people on this piece of work who are not on every
+folio for the client), added with `set_context` and `folio_id`; they merge with the folders' contacts, the folio's
+winning for the same email.
 Never a password, key or token: `credentials` says where one lives. `review_folio` and `get_context` show the
 context with what is still unset (`slots.unset`): ask the team for exactly those at the start and record the
 answers with `set_context`; ask the client (in a draft) only what only the client knows.

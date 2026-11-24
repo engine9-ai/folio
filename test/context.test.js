@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ValidationError, changeFolderContext, mergeContext, normalizeFolderContext, resolveAccount, setAccountIn } from '../src/index.js';
+import { ValidationError, changeContacts, changeFolderContext, mergeContext, normalizeFolderContext, resolveAccount, setAccountIn } from '../src/index.js';
 
 test('a folder context keeps references, never secrets', () => {
   const c = normalizeFolderContext({ connections: [{ type: 'Engine9', alias: 'habitat', account_id: 'allegiance_habitat' }, { type: 'sftp', alias: 'drop', role: 'source', host: 'sftp.example.org', credentials: '1Password: Clients/HFHI SFTP' }], contacts: ['Tim Thornburg <Tim@Example.org>'], client_approvers: ['Chris@Engine9.ai'] });
@@ -28,6 +28,19 @@ test('changes add or replace by alias and email; folios inherit, nearest wins, a
   assert.deepEqual(m.agents, [{ path: 'habitat/AGENTS.md', from: 'habitat' }]);
   assert.deepEqual(m.slots.unset.map((s) => s.key), ['destination']);
   assert.equal(changeFolderContext(top, { remove_connections: ['E9'], remove_contacts: ['tim@example.org'], client_approvers: [] }).connections.length, 1);
+});
+
+test('a folio has contacts of its own, like a folder, merged over those of the folders and folios above it', () => {
+  const top = normalizeFolderContext({ contacts: [{ name: 'Tim', email: 'tim@example.org', role: 'VP Data' }, { name: 'Erin', role: 'IT' }] });
+  let own = changeContacts([], { contacts: [{ email: 'Tim@Example.org', role: 'Project lead' }, 'Pat <pat@example.org>'] });
+  own = changeContacts(own, { contacts: [{ email: 'pat@example.org', answers: 'test data' }] });
+  assert.deepEqual(own, [{ email: 'tim@example.org', role: 'Project lead' }, { email: 'pat@example.org', answers: 'test data' }]);
+  assert.throws(() => changeContacts([], { contacts: [{ role: 'nobody' }] }), ValidationError);
+  const m = mergeContext([{ path: 'habitat', context: top }, { path: 'habitat/launch', context: { contacts: [{ name: 'Erin', role: 'IT lead' }] } }], { contacts: own });
+  assert.deepEqual(m.contacts.map((c) => [c.name || c.email, c.role || null, c.from]), [['tim@example.org', 'Project lead', 'folio'], ['Erin', 'IT lead', 'habitat/launch'], ['pat@example.org', null, 'folio']]);
+  assert.ok(m.slots.set.includes('contacts'));
+  assert.ok(mergeContext([], { contacts: own }).slots.set.includes('contacts'), 'a folio with only its own contacts has the slot set');
+  assert.deepEqual(changeContacts(own, { remove_contacts: ['PAT@example.org'] }).map((c) => c.email), ['tim@example.org']);
 });
 
 test('the account: the engine9 connections nearest the folio decide; several need one marked primary', () => {

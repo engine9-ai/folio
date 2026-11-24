@@ -20,7 +20,8 @@ import { findCredentials } from './privacy.js';
  * A connection is a reference, like a folio's (folio.json `connections`): type and alias, then whatever names it
  * (an account id, a URL, a host). Never a secret: `credentials` says where one lives (a password-manager item).
  * Folders inherit from the folders above them; a nearer folder's connection with the same alias wins, and a folio's
- * own `connections` win over them all. `client_approvers`, when set, are the only people who may send messages to
+ * own `connections` win over them all. A folio is a folder too: its folio.json may hold `contacts` of its own, merged
+ * with (and, for the same email, replacing) those of the folders above it. `client_approvers`, when set, are the only people who may send messages to
  * the client from folios inside (SPEC 5.7.3).
  */
 
@@ -71,7 +72,8 @@ export function normalizeConnection(c, i = 0) {
   return out;
 }
 
-function normalizeContact(c, i) {
+/** One contact: { name?, email?, role?, answers?, phone? }, with a name or an email. */
+export function normalizeContact(c, i = 0) {
   const where = `contacts[${i}]`;
   if (typeof c === 'string') c = { email: c };
   if (!c || typeof c !== 'object') throw new ValidationError(`${where} must be { name, email, role, answers }`);
@@ -93,6 +95,31 @@ const emails = (list, where) =>
     return e;
   }))];
 
+const contactKey = (c) => (c.email ? c.email : `name:${String(c.name || '').toLowerCase()}`);
+
+/** A list of contacts, checked: at most MAX_CONTACTS, each normalized. */
+export function normalizeContacts(list = []) {
+  const people = [].concat(list || []);
+  if (people.length > MAX_CONTACTS) throw new ValidationError(`At most ${MAX_CONTACTS} contacts`);
+  return people.map(normalizeContact);
+}
+
+/**
+ * Apply `contacts` (add or replace by email, else by name) and `remove_contacts` (emails or names) to a list of
+ * contacts set in one place (a folder's folder.json or a folio's folio.json). Returns the new list.
+ */
+export function changeContacts(current = [], { contacts: add = [], remove_contacts = [] } = {}) {
+  const same = (a, b) => (a.email && b.email ? a.email === b.email : String(a.name || '').toLowerCase() === String(b.name || '').toLowerCase());
+  const gone = [].concat(remove_contacts || []).map((x) => String(x).toLowerCase());
+  let contacts = normalizeContacts(current).filter((c) => !gone.includes(String(c.email || '').toLowerCase()) && !gone.includes(String(c.name || '').toLowerCase()));
+  for (const [i, raw] of [].concat(add || []).entries()) {
+    const c = normalizeContact(raw, i);
+    const had = contacts.find((x) => same(x, c));
+    contacts = had ? contacts.map((x) => (x === had ? { ...had, ...c } : x)) : [...contacts, c];
+  }
+  return normalizeContacts(contacts);
+}
+
 /** A folder's context, checked: { format, connections, contacts, client_approvers }. */
 export function normalizeFolderContext(input = {}) {
   const conns = [].concat(input.connections || []);
@@ -103,9 +130,7 @@ export function normalizeFolderContext(input = {}) {
     if (aliases.has(c.alias.toLowerCase())) throw new ValidationError(`Two connections are called ${c.alias}`);
     aliases.add(c.alias.toLowerCase());
   }
-  const people = [].concat(input.contacts || []);
-  if (people.length > MAX_CONTACTS) throw new ValidationError(`At most ${MAX_CONTACTS} contacts`);
-  return { format: FOLDER_FORMAT, connections, contacts: people.map(normalizeContact), client_approvers: emails(input.client_approvers, 'client_approvers') };
+  return { format: FOLDER_FORMAT, connections, contacts: normalizeContacts(input.contacts), client_approvers: emails(input.client_approvers, 'client_approvers') };
 }
 
 /**
@@ -121,14 +146,7 @@ export function changeFolderContext(current = {}, patch = {}) {
     const c = normalizeConnection(raw, i);
     connections = [...connections.filter((x) => x.alias.toLowerCase() !== c.alias.toLowerCase()), c];
   }
-  const same = (a, b) => (a.email && b.email ? a.email === b.email : String(a.name || '').toLowerCase() === String(b.name || '').toLowerCase());
-  const gone = [].concat(patch.remove_contacts || []).map((x) => String(x).toLowerCase());
-  let contacts = cur.contacts.filter((c) => !gone.includes(String(c.email || '').toLowerCase()) && !gone.includes(String(c.name || '').toLowerCase()));
-  for (const [i, raw] of [].concat(patch.contacts || []).entries()) {
-    const c = normalizeContact(raw, i);
-    const had = contacts.find((x) => same(x, c));
-    contacts = had ? contacts.map((x) => (x === had ? { ...had, ...c } : x)) : [...contacts, c];
-  }
+  const contacts = changeContacts(cur.contacts, patch);
   const client_approvers = patch.client_approvers !== undefined ? patch.client_approvers : cur.client_approvers;
   return normalizeFolderContext({ connections, contacts, client_approvers });
 }
@@ -187,11 +205,12 @@ export function setAccountIn(connections = [], { account_id, parent_account_id }
 
 /**
  * The context a folio works in: its folders' contexts, nearest last (`layers`: [{ path, context, agents }], top
- * first, where `agents` is true when that folder has an AGENTS.md), then the folio's own connections and AGENTS.md.
- * Returns { connections, contacts, client_approvers, agents, account, slots: { set, unset } }, each connection and
+ * first, where `agents` is true when that folder has an AGENTS.md; a folio above it is a layer too, with its own
+ * connections and contacts), then the folio's own connections, contacts and AGENTS.md. Contacts merge by email (else
+ * name), the nearest winning. Returns { connections, contacts, client_approvers, agents, account, slots: { set, unset } }, each connection and
  * contact with `from` (the folder it was set on, or "folio"). `account` is resolveAccount() of the connections.
  */
-export function mergeContext(layers = [], { connections: own = [], agents: ownAgents = false, path = null } = {}) {
+export function mergeContext(layers = [], { connections: own = [], contacts: ownContacts = [], agents: ownAgents = false, path = null } = {}) {
   const byAlias = new Map();
   const contacts = new Map();
   let client_approvers = [];
@@ -200,7 +219,7 @@ export function mergeContext(layers = [], { connections: own = [], agents: ownAg
   for (const layer of layers) {
     const ctx = layer.context || {};
     for (const c of ctx.connections || []) byAlias.set(String(c.alias).toLowerCase(), { ...c, from: layer.path });
-    for (const c of ctx.contacts || []) contacts.set(c.email || `name:${String(c.name).toLowerCase()}`, { ...c, from: layer.path });
+    for (const c of ctx.contacts || []) contacts.set(contactKey(c), { ...c, from: layer.path });
     if ((ctx.client_approvers || []).length) {
       client_approvers = ctx.client_approvers;
       approvers_from = layer.path;
@@ -208,6 +227,7 @@ export function mergeContext(layers = [], { connections: own = [], agents: ownAg
     if (layer.agents) agents.push({ path: `${layer.path}/${AGENTS_FILE}`, from: layer.path });
   }
   for (const c of own || []) byAlias.set(String(c.alias).toLowerCase(), { ...c, from: 'folio' });
+  for (const c of ownContacts || []) contacts.set(contactKey(c), { ...c, from: 'folio' });
   if (ownAgents) agents.push({ path: AGENTS_FILE, from: 'folio', ...(path ? { folder: path } : {}) });
   const merged = { connections: [...byAlias.values()], contacts: [...contacts.values()], client_approvers, approvers_from, agents };
   merged.account = resolveAccount(merged.connections);
