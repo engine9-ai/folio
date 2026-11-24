@@ -1,0 +1,37 @@
+{
+  "at": "2026-11-02T13:41:00.000Z",
+  "kind": "email",
+  "author": {
+    "type": "email",
+    "id": "pat@customer.example"
+  },
+  "via": "example",
+  "filed_by": {
+    "type": "user",
+    "id": "sam@example.com",
+    "name": "Sam (account manager)"
+  },
+  "headers": {
+    "from": "pat@customer.example",
+    "to": "support@agency.example",
+    "subject": "Donate button broken!",
+    "date": "2026-11-02T13:41:00.000Z",
+    "message_id": "<report-1@customer.example>"
+  },
+  "text": "Hi, since this morning nobody can donate from Safari. The button just spins. Can you look today?",
+  "summary": {
+    "text": "Pat reports that nobody can donate from Safari since this morning (the button spins) and asks for a fix today.",
+    "by": {
+      "type": "user",
+      "id": "sam@example.com",
+      "name": "Sam (account manager)"
+    },
+    "at": "2026-11-02T20:00:00.000Z"
+  },
+  "attachments": [],
+  "original": {
+    "path": "sources/email/2026-11-02-donate-button-broken-c363ad49.eml",
+    "received_size": 268,
+    "size": 268
+  }
+}

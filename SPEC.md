@@ -3,6 +3,8 @@
 
 > **Status.** This is the working specification as finalised in the 2 November 2026 product conversation. It supersedes the earlier draft. It remains a living document: where a decision here conflicts with an earlier idea, this document wins. Scope for the first release is in [section 19](#19-version-1-scope-and-deferred-work).
 >
+> **Changes on 24 November 2026 (email):** an email in `comms/` is a short **record** (`*.email.json`: headers, what the sender wrote without quoted history and signatures, a summary, its attachments), and **the email itself is in `sources/email/`**, with each attachment kept once as a file in `attachments/<email>/` and replaced inside the email by a pointer to it (8.1). The conversation stays small enough to read whole however long a thread or large an attachment. A summary says who wrote it: the person or agent who filed the email, or the host's model (8.1.1). An email can be filed from its fields (`folio.addEmail`) by tools that read mail through an API rather than as messages (8.1.2). Emails filed earlier, as an `.eml` in `comms/`, are still read.
+>
 > **Decision on 14 November 2026 (language):** Folio says "client" for who the work is for, both the organisation (a top-level folder and its sub-folders) and its people; "account" is not a Folio concept and no `account_id` is stored (2.3).
 >
 > **Changes on 13 November 2026 (client view):** what a client may see of a folio is defined (5.7.2): the client thread only, with messages kept from the client listed in `comms/hidden.json`. An email forwarded in by the team counts as the client's when the message it forwards came from outside the team.
@@ -135,12 +137,16 @@ folios/
     CONTEXT.md
 
     comms/                       every message, in time order (3.1.2)
-      2026-11-02-donate-button-broken-1a2b3c4d.eml
+      2026-11-02-134100-donate-button-broken-1a2b3c4d.email.json
       2026-11-09-153012-m-r-to-confirm-the-split.comment.json
       2026-11-09-160000-on-track-for-friday.update.json
       2026-11-09-161500-scanned-three-tables.agent.json
 
+    sources/email/               each email itself (8.1)
+      2026-11-02-donate-button-broken-1a2b3c4d.eml
+
     attachments/                 files people add: screenshots, documents, an email's attachments
+      2026-11-02-donate-button-broken-1a2b3c4d/screenshot.png
 
     fix-mobile-redirect/         a folio inside the folio: one piece of the work (5)
       folio.json                 type, status, owner, blockers...
@@ -198,7 +204,7 @@ The directory layout is a convention rather than a rigid empty scaffold. Only `f
 
 | File | Kind |
 |---|---|
-| `*.eml` (and `*.msg`) | An email, as received (or a text copy, 3.7) |
+| `*.email.json` | An email: who sent it to whom and when, what they wrote, a summary, its attachments, and where the email itself is (8.1). Emails filed before 24 November 2026 are the `*.eml` (or `*.msg`) itself |
 | `*.comment.json` | A comment |
 | `*.update.json` | A status update |
 | `*.agent.json` | What an agent did or found, in its own words |
@@ -821,9 +827,51 @@ Sources provide the original context for work. The product should preserve origi
 
 > **In version 1:** an email reaches a folio in three ways, all filed by the same rule (8.6): **forwarding** it to the folio's intake address (`<folio-id>@<intake domain>`; every folio, including one inside another, has its own), **dragging** it from a desktop mail client (Apple Mail, Outlook, Thunderbird give the browser an `.eml` or `.msg` file), or adding an `.eml` file by hand. The hosting service accepts a forwarded email only from a sender who may write to that folio. Not yet: thread matching for replies, and splitting a forwarded wrapper from the original it carries.
 >
-> Each email is stored once, as received, at `comms/<date>-<subject>-<hash>.eml`, with every other message (3.1.2) (unless it carries content 3.7 forbids or data-file attachments: then the folio keeps a text copy with its original headers, its readable text scrubbed, an `X-Folio-Copy` header and a list of where each attachment went; data attachments are summarised as in 8.4.1, other attachments go to `attachments/<email>/`, and the original is held temporarily) (Outlook `.msg` files keep their own format). The date is the email's own `Date`, the hash comes from its `Message-ID` (or its bytes), so a second delivery of the same message is recognised and not stored again. The header summary (from, to, subject, date, message id) is read from the file whenever it is needed, and recorded with the intake provenance in `history/intake/`.
+> **Each email is filed as three things**, so the conversation stays small and the evidence stays whole:
+>
+> | Where | What |
+> |---|---|
+> | `comms/<date>-<time>-<subject>-<hash>.email.json` | Its **record** in the conversation (below) |
+> | `sources/email/<date>-<subject>-<hash>.eml` | **The email itself**, as received, except that each attachment is replaced by a pointer to its file. Outlook `.msg` files are kept as they are, unread |
+> | `attachments/<date>-<subject>-<hash>/<name>` | **Each attachment**, once, byte for byte. A data file among them is summarised in `sources/data/` and held instead (8.4.1). Small inline images (under 32 KB: signature logos, icons) stay inside the email |
+>
+> A pointer is a standard MIME part, `message/external-body; access-type=local-file; name="attachments/…"`, keeping the attachment's own Content-Type, Content-Disposition and Content-ID and an `X-Folio-Detached` header with its size and SHA-256, so a mail client still lists it and any reader can find it. Everything else in the email (headers, text, HTML) is kept byte for byte. An email whose subject or text carries what 3.7 forbids is kept instead as a **text copy** (its original headers, its readable text scrubbed, an `X-Folio-Copy` header and a list of where each attachment went), and its original is held temporarily (8.4.1).
+>
+> The record:
+>
+> ```json
+> { "at": "2026-11-02T13:41:00.000Z", "kind": "email",
+>   "author": { "type": "email", "id": "pat@customer.example" }, "via": "folio-server/mailbox",
+>   "filed_by": { "type": "user", "id": "sam@agency.example" },
+>   "headers": { "from", "to", "cc", "subject", "date", "message_id", "in_reply_to", "references" },
+>   "forwarded": { "from", "date", "subject" },
+>   "text": "What the sender wrote, without quoted history, signatures and legal notices (at most 8,000 characters)",
+>   "trimmed": true, "full_chars": 48211,
+>   "summary": { "text": "…", "by": { "type": "agent", "id": "…", "on_behalf_of": "sam@agency.example" }, "at": "…" },
+>   "attachments": [ { "name": "screenshot.png", "type": "image/png", "size": 61234, "path": "attachments/…/screenshot.png", "inline": true },
+>                    { "name": "donors.csv", "type": "text/csv", "size": 90211, "path": "sources/data/…json", "data": true } ],
+>   "original": { "path": "sources/email/….eml", "received_size": 1402311, "size": 2981, "copy": "attachments_as_files" } }
+> ```
+>
+> `forwarded` is the header block of a message forwarded inside it; `trimmed` says quoted history or a signature was left out of `text`, and `full_chars` how long the whole readable text is; `original.copy` is absent (kept exactly), `attachments_as_files`, or `text` (with `held`). The date in the names is the email's own `Date`; the hash comes from its `Message-ID` (or its bytes), so a second delivery of the same message is recognised and not stored again (a summary brought with it is still kept, 8.1.1). Messages are written once; an email record's `summary` is the one thing that may change later. Moving the record to the Trash takes the email itself and its attachments with it (3.9). The intake provenance in `history/intake/` records all three paths.
+>
+> Readers show the record. `folio.email(path)` reads the whole email (its full readable text, quoted history included, and its attachments) for whoever needs it; `folio.emails({ full: true })` does so for every email.
 
 Each folio may receive relevant support emails through an assigned intake address, forwarding rule, or explicit import. Inbound email should be retained as an original message, with useful metadata such as sender, recipients, date, subject, message identifier, thread identity, and attachments.
+
+#### 8.1.1 Summaries
+
+Like a modern inbox, a folio shows an email by its **summary** when it has one, and by what the sender wrote otherwise; the email itself is a click away. A summary is a few plain sentences: what the sender needs or reports, the concrete details (amounts, dates, errors), and what they expect next. For an email that carries a long thread, it covers the thread. It always says who wrote it (`summary.by`):
+
+- **Whoever files the email** may give one (`summary` on `folio.add` or `folio.addEmail`). An agent that has read the thread and knows the folio writes the best summary, and should.
+- **A person or agent may write or correct one later** (`folio.setEmailSummary(path, text)`; empty text removes it).
+- **A host may summarise emails that arrive without one** (forwarded, dragged in) with its own model, recorded as `{ "type": "model", "id": <model> }`. A host never replaces a summary a person or agent wrote (`onlyIfMissing`).
+
+A summary describes what other people wrote: it is never evidence on its own (3.6), and the email it summarises always stays in the folio.
+
+#### 8.1.2 Emails from mail APIs and agents
+
+Mail tools that are not mail clients (a provider's API, an MCP server, a helpdesk export) usually give an email's **fields**, not the message. `folio.addEmail({ from, to, cc, date, subject, message_id, in_reply_to, references, text, html?, attachments?: [{ name, type, data }], summary? })` writes an RFC 5322 message from them and files it exactly like a forwarded one. Nothing in Folio is specific to one mail provider. When a tool can give the message itself (raw RFC 822, "show original", "download message"), those bytes are better: they keep every header and part. Either way, one email is one message; a thread is filed as its messages, or, when it only needs to be on record, as its latest message (which usually quotes the rest) with a summary of the thread.
 
 Replies and follow-ups should be associated with their existing thread when possible. If an incoming message cannot confidently be assigned to a folio, a human should route it rather than silently filing it under a guessed account. Duplicate delivery should not produce duplicate evidence.
 
@@ -872,7 +920,7 @@ Whatever adds something to a folio (a drag and drop in the browser, an upload, a
 | Item | Recognised by | Goes to |
 |---|---|---|
 | Git repository | A GitHub, GitLab or Bitbucket URL (including links to an issue, pull request or file inside one), an `ssh://`/`git@` address, or a URL ending in `.git` | Listed in `folio.json` `repositories` (3.2.1). Already listed: reported, not duplicated. |
-| Email | `.eml` / `message/rfc822`, Outlook `.msg`, or text that starts with an email header block | `comms/` (3.1.2, 8.1) |
+| Email | `.eml` / `message/rfc822`, Outlook `.msg`, or text that starts with an email header block | A record in `comms/`, the email itself in `sources/email/`, its attachments in `attachments/<email>/` (3.1.2, 8.1) |
 | Other link | Any other URL (also `.webloc` and `.url` shortcut files) | `sources/links/<date>-<site>-<hash>.json`, holding the URL and who added it |
 | Text | Dropped, pasted or typed text that is not a URL, an email or JSON | `notes/<date>-<title>.md`, `.html` or `.txt`: **Markdown, HTML or plain text by what it looks like** (below). The title is the first heading, an HTML `<title>`/`<h1>`, or the first line |
 | An export from another tool | An Asana or Trello JSON export, or `{ "folios": [...] }`, dropped as a `.json` file or pasted | Folios inside this one (4.4.1) |

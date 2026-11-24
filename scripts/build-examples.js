@@ -38,7 +38,7 @@ async function fresh(name) {
     now,
   });
   await folio.addRepository({ repository: 'example/campaign-site', purpose: 'Donation page and form handler', role: 'primary' }, { actor: sam });
-  await fs.write('comms/2026-11-02-forwarded-report.eml', [
+  const [report] = await folio.add({ name: 'report.eml', data: [
     'From: pat@customer.example',
     'To: support@agency.example',
     'Subject: Donate button broken!',
@@ -47,11 +47,11 @@ async function fresh(name) {
     '',
     'Hi, since this morning nobody can donate from Safari. The button just spins. Can you look today?',
     '',
-  ].join('\r\n'));
+  ].join('\r\n'), summary: 'Pat reports that nobody can donate from Safari since this morning (the button spins) and asks for a fix today.' }, { actor: sam, via: 'example' });
   await folio.edit({
     type: 'bug',
     outcome: 'Donations complete on Safari, confirmed by the customer.',
-    links: [{ type: 'source', label: "Customer's original email", path: 'comms/2026-11-02-forwarded-report.eml' }],
+    links: [{ type: 'source', label: "Customer's original email", path: report.original }],
   }, { actor: sam, via: 'example' });
   await folio.edit({ owner: 'robin@example.com' }, { actor: robin, via: 'example' });
   await folio.comment('Reproduced. A recent change used a regex lookbehind, which older Safari rejects.', { actor: robin, via: 'example' });
@@ -100,12 +100,12 @@ async function fresh(name) {
   await launch.folio.relate('blocked_by', design.id, opts);
   await launch.folio.relate('blocked_by', content.id, opts);
   // Decision with rationale and evidence
-  await fs.write('comms/2026-09-10-customer-brand-guidance.eml', 'From: pat@customer.example\r\nSubject: Brand colours\r\nMessage-ID: <brand-1@customer.example>\r\n\r\nPlease keep our teal. The orange in the old portal is being retired.\r\n');
+  const [brand] = await folio.add({ name: 'brand.eml', data: 'From: pat@customer.example\r\nSubject: Brand colours\r\nDate: Thu, 10 Sep 2026 15:20:00 +0000\r\nMessage-ID: <brand-1@customer.example>\r\n\r\nPlease keep our teal. The orange in the old portal is being retired.\r\n' }, opts);
   await fs.write('decisions/DEC-001.json', j({
     id: 'DEC-001', title: 'Keep the existing teal as the primary colour', date: '2026-09-11',
     decided_by: 'Pat (customer) with Sam (account manager)', status: 'accepted',
     related_folios: [design.id],
-    sources: [{ label: "Customer's brand guidance", path: 'comms/2026-09-10-customer-brand-guidance.eml' }],
+    sources: [{ label: "Customer's brand guidance", path: brand.original }],
   }));
   await fs.write('decisions/DEC-001.md', '# Keep the existing teal\n\n**Choice.** Teal stays the primary colour.\n\n**Why.** The customer is retiring the orange; teal already passes contrast checks.\n\n**Alternatives.** A new palette (rejected: extra review cost).\n');
 

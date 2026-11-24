@@ -1,0 +1,27 @@
+{
+  "at": "2026-09-10T15:20:00.000Z",
+  "kind": "email",
+  "author": {
+    "type": "email",
+    "id": "pat@customer.example"
+  },
+  "via": "example",
+  "filed_by": {
+    "type": "user",
+    "id": "sam@example.com",
+    "name": "Sam (account manager)"
+  },
+  "headers": {
+    "from": "pat@customer.example",
+    "subject": "Brand colours",
+    "date": "2026-09-10T15:20:00.000Z",
+    "message_id": "<brand-1@customer.example>"
+  },
+  "text": "Please keep our teal. The orange in the old portal is being retired.",
+  "attachments": [],
+  "original": {
+    "path": "sources/email/2026-09-10-brand-colours-5ff57ca8.eml",
+    "received_size": 203,
+    "size": 203
+  }
+}

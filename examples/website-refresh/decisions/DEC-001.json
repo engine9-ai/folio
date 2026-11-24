@@ -5,12 +5,12 @@
   "decided_by": "Pat (customer) with Sam (account manager)",
   "status": "accepted",
   "related_folios": [
-    "fol-7x6xhq"
+    "fol-rj8bkx"
   ],
   "sources": [
     {
       "label": "Customer's brand guidance",
-      "path": "comms/2026-09-10-customer-brand-guidance.eml"
+      "path": "sources/email/2026-09-10-brand-colours-5ff57ca8.eml"
     }
   ]
 }

@@ -1,0 +1,19 @@
+{
+  "at": "2026-09-02T15:00:00.000Z",
+  "actor": {
+    "type": "user",
+    "id": "sam@example.com",
+    "name": "Sam (account manager)"
+  },
+  "via": "example",
+  "kind": "email",
+  "path": "comms/2026-09-10-152000-brand-colours-5ff57ca8.email.json",
+  "original": "sources/email/2026-09-10-brand-colours-5ff57ca8.eml",
+  "original_name": "brand.eml",
+  "email": {
+    "from": "pat@customer.example",
+    "subject": "Brand colours",
+    "date": "2026-09-10T15:20:00.000Z",
+    "message_id": "<brand-1@customer.example>"
+  }
+}

@@ -44,6 +44,17 @@ export async function validateFolio(fs) {
     }
   }
 
+  // An email's record in comms/ must be readable and point at the email itself (SPEC 8.1).
+  for (const path of files.filter((f) => /^comms\/[^/]+\.email\.json$/.test(f))) {
+    try {
+      const m = JSON.parse((await fs.read(path)).text);
+      if (typeof m.text !== 'string' || Number.isNaN(Date.parse(m.at)) || !m.headers) add('warning', 'email_shape', path, 'An email record needs "at", "headers" and "text"');
+      if (m.original?.path && !files.includes(m.original.path)) add('warning', 'email_original_missing', path, `The email itself (${m.original.path}) is not in the folio`);
+    } catch (e) {
+      add('error', 'email_json', path, `Not valid JSON: ${e.message}`);
+    }
+  }
+
   // Tasks (tasks/<dir>/task.json) must be readable records of work run elsewhere.
   for (const path of files.filter((f) => /^tasks\/[^/]+\/task\.json$/.test(f))) {
     try {

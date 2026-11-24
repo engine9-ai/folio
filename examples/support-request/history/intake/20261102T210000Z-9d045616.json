@@ -1,0 +1,20 @@
+{
+  "at": "2026-11-02T21:00:00.000Z",
+  "actor": {
+    "type": "user",
+    "id": "sam@example.com",
+    "name": "Sam (account manager)"
+  },
+  "via": "example",
+  "kind": "email",
+  "path": "comms/2026-11-02-134100-donate-button-broken-c363ad49.email.json",
+  "original": "sources/email/2026-11-02-donate-button-broken-c363ad49.eml",
+  "original_name": "report.eml",
+  "email": {
+    "from": "pat@customer.example",
+    "to": "support@agency.example",
+    "subject": "Donate button broken!",
+    "date": "2026-11-02T13:41:00.000Z",
+    "message_id": "<report-1@customer.example>"
+  }
+}

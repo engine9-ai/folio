@@ -1,12 +1,12 @@
 import { ConflictError, NotFoundError, ValidationError } from './errors.js';
 import { normalizePath } from './fs.js';
-import { emailAddress, emailAttachments, looksLikeEmail, parseEmail, parseEmailHeaders, rawHeaderBlock } from './email.js';
+import { binaryBytes, binaryString, cleanEmailText, detachParts, detachable, emailAddress, emailFileParts, forwardedHeaders, looksLikeEmail, parseEmail, parseEmailHeaders, rawHeaderBlock } from './email.js';
 import { dataFormat, keepInFolio, summarizeData } from './data.js';
 import { describeRemoved, prohibitedIn, scrubText } from './privacy.js';
 import { parseGithubUrl, repositoryKey } from './repositories.js';
 import { TEXT_FORMATS, detectTextFormat, textFormatOf, titleOfText } from './text-format.js';
 import { detectImport, parseJsonText } from './import.js';
-import { isEmailPath, postMessage } from './comms.js';
+import { COMMS_DIR, isEmailPath, postMessage, setEmailSummary } from './comms.js';
 
 /**
  * Intake: decide where something added to a folio belongs, then put it there.
@@ -22,7 +22,8 @@ import { isEmailPath, postMessage } from './comms.js';
  *
  * Kinds and where they go:
  *   repository  a git repository URL   -> listed in folio.json `repositories` (spec 3.2.1)
- *   email       .eml, .msg, raw MIME   -> comms/<date>-<subject>-<hash>.eml (spec 8.1; with every other message)
+ *   email       .eml, .msg, raw MIME   -> comms/<date-time>-<subject>-<hash>.email.json, a record in the conversation;
+ *                                         the email itself in sources/email/, its attachments in attachments/ (spec 8.1)
  *   link        any other URL          -> sources/links/<date>-<site>-<hash>.json
  *   note        plain text             -> notes/<date>-<first-line>.md
  *   data        a data file or log     -> summarised in sources/data/<date>-<name>-<hash>.json; the file
@@ -316,10 +317,20 @@ export function intakeChoices(item = {}, { folder } = {}) {
 export async function findEmailByMessageId(folio, id) {
   const want = String(id || '').replace(/^<|>$/g, '').trim().toLowerCase();
   if (!want) return null;
-  for (const p of (await folio.fs.list('comms')).filter((x) => /^comms\/[^/]+\.eml$/i.test(x))) {
+  const norm = (v) => String(v || '').replace(/[<>]/g, '').trim().toLowerCase();
+  for (const p of (await folio.fs.list(COMMS_DIR)).filter(isEmailPath)) {
+    if (/\.msg$/i.test(p)) continue;
     const cur = await folio.fs.read(p).catch(() => null);
-    const head = cur ? parseEmailHeaders(cur.text.slice(0, 65536)) : null;
-    if (String(head?.message_id || '').replace(/[<>]/g, '').trim().toLowerCase() === want) return p;
+    if (!cur) continue;
+    let head = null;
+    if (/\.json$/.test(p)) {
+      try {
+        head = JSON.parse(cur.text).headers;
+      } catch {
+        head = null;
+      }
+    } else head = parseEmailHeaders(cur.text.slice(0, 65536));
+    if (norm(head?.message_id) === want) return p;
   }
   return null;
 }
@@ -416,56 +427,7 @@ export async function addItem(folio, item, { folder, actor = { type: 'unknown' }
     return [{ kind: 'link', url: c.url, path, summary: `Saved link to ${site}` }];
   }
 
-  if (c.kind === 'email') {
-    const bytes = toBytes(item.data ?? item.text);
-    const headers = c.format === 'eml' ? parseEmailHeaders(peek(bytes, 65536)) || {} : {};
-    const h = await shortHash(headers.message_id ? headers.message_id.trim() : bytes);
-    const existing = (await fs.list('comms')).find((p) => isEmailPath(p) && p.includes(`-${h}.`));
-    let path = existing;
-    let privacy = null;
-    const extra = [];
-    if (!existing) {
-      const stem = `${day(headers.date)}-${slugify(headers.subject || (item.name || '').replace(/\.[^.]+$/, ''), 48) || 'email'}-${h}`;
-      path = `comms/${stem}.${c.format}`;
-      const raw = c.format === 'eml' ? peek(bytes, bytes.length) : null;
-      const plan = raw ? emailPrivacy(raw, headers) : null;
-      if (plan?.rewrite) {
-        // The original carries what a folio must not hold: keep a text copy here, hold the original.
-        const held = await holdBytes(folio, bytes, { name: `${stem}.eml`, type: 'message/rfc822', actor, via });
-        const placed = [];
-        for (const a of plan.attachments) {
-          if (a.data) {
-            const [r] = await addItem(folio, { name: a.name, type: a.type, data: a.bytes }, { actor, via: `${via}/email-attachment` });
-            placed.push({ name: a.name, path: r.path, summary: r.summary });
-            extra.push(r);
-          } else {
-            const scrubbed = scrubFile(a.name, a.bytes);
-            const p = await createUnique(fs, `attachments/${stem}`, safeName(a.name), scrubbed.bytes, a.type || undefined);
-            placed.push({ name: a.name, path: p, ...(scrubbed.total ? { removed: scrubbed.removed } : {}) });
-          }
-        }
-        await fs.write(path, emailCopy(raw, plan, held, placed), { ifMatch: null, contentType: 'message/rfc822' });
-        privacy = { copy: true, removed: plan.removed, held: held || { where: 'not_kept' }, attachments: placed };
-      } else {
-        await fs.write(path, bytes, { ifMatch: null, contentType: c.format === 'eml' ? 'message/rfc822' : 'application/vnd.ms-outlook' });
-        if (!raw) privacy = { scanned: false, note: 'Outlook .msg files are not read, so not checked' };
-      }
-      await record({ kind: 'email', path, original_name: item.name, email: headers, ...(privacy ? { privacy } : {}) });
-      if (folio.onMessage) {
-        // Tell the host (it may pass the email on to the folio's CCs): the text as filed, never the held original.
-        const filed = c.format === 'eml' ? await fs.read(path) : null;
-        const text = filed ? parseEmail(filed.text)?.text || '' : '';
-        await folio.onMessage({ path, kind: 'email', at: headers.date && !Number.isNaN(Date.parse(headers.date)) ? new Date(headers.date).toISOString() : folio.now(), author: { type: 'email', id: emailAddress(headers.from) || headers.from || null, ...(actor?.id ? { forwarded_by: actor.id } : {}) }, via, subject: headers.subject || null, from: headers.from || null, to: headers.to || null, text: text.slice(0, 20000) });
-      }
-    }
-    const what = headers.subject ? `“${headers.subject}”` : 'the email';
-    let summary = existing ? `${what} is already in this folio` : `Filed ${what} in comms`;
-    if (privacy?.copy) {
-      const why = [describeRemoved(privacy.removed), privacy.attachments.some((a) => extra.some((r) => r.path === a.path && r.kind === 'data')) ? 'data attachments (summarised)' : ''].filter(Boolean).join(' and ');
-      summary += ` as a text copy without ${why}; ${heldPhrase(privacy.held, 'the original')}`;
-    }
-    return [{ kind: 'email', path, email: headers, duplicate: Boolean(existing), ...(privacy?.copy ? { privacy } : {}), summary }, ...extra];
-  }
+  if (c.kind === 'email') return fileEmail(folio, item, c, { actor, via, record, day });
 
   if (c.kind === 'import') {
     const r = await folio.import(item.text ?? toBytes(item.data), { format: c.format, name: item.name, actor, via });
@@ -607,19 +569,150 @@ function scrubFile(name, bytes) {
   return r.total ? { bytes: enc.encode(r.text), removed: r.removed, total: r.total } : { bytes, removed: {}, total: 0 };
 }
 
-/** Does an email need a text copy instead of its original? Prohibited content, or attachments that are data. */
-function emailPrivacy(raw, headers) {
-  const parsed = parseEmail(raw);
-  const body = parsed?.text || '';
-  const removed = prohibitedIn(`${headers.subject || ''}\n${body}`);
-  const attachments = emailAttachments(raw).map((a) => ({ ...a, data: Boolean(dataFormat(a)) }));
-  for (const a of attachments) {
-    if (a.data) continue;
-    const r = scrubFile(a.name, a.bytes);
-    for (const [k, v] of Object.entries(r.removed)) removed[k] = (removed[k] || 0) + v;
+// ---- email ----
+
+/** Where the email itself is kept (SPEC 8.1): the conversation in comms/ has a short record of it. */
+export const EMAIL_SOURCES = 'sources/email';
+/** The most of what an email's sender wrote that its record in comms/ carries; the email itself has the rest. */
+export const EMAIL_TEXT_CHARS = 8000;
+
+const isoDate = (d) => {
+  const t = Date.parse(d || '');
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
+};
+/** "2026-11-09-153012" from an ISO time, so comms/ lists in time order. */
+const stampOf = (iso) => String(iso).replace(/\.\d+Z?$/, '').replace(/Z$/, '').replace('T', '-').replace(/:/g, '').slice(0, 17);
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+/** Who wrote a summary, as a record carries it. */
+export function summaryBy(actor) {
+  if (!actor) return { type: 'unknown' };
+  const { type = 'unknown', id = null, name, on_behalf_of } = actor;
+  return { type, id, ...(name ? { name } : {}), ...(on_behalf_of ? { on_behalf_of } : {}) };
+}
+
+/** A summary as an email record keeps it: { text, by, at }. Card numbers and credentials are removed. */
+export function emailSummary(text, { actor = null, by = null, at }) {
+  const clean = scrubText(String(text || '').trim()).text.slice(0, 4000);
+  return clean ? { text: clean, by: by || summaryBy(actor), at } : null;
+}
+
+/**
+ * File an email (SPEC 8.1). Three things are written:
+ *
+ *   comms/<date-time>-<subject>-<hash>.email.json   its record in the conversation: headers, what the sender wrote
+ *                                                   (without quoted history and signatures), a summary when one is
+ *                                                   given, its attachments, and where the email itself is
+ *   sources/email/<date>-<subject>-<hash>.eml        the email itself, as received, except that each attachment is
+ *                                                   replaced by a pointer to its file (or a text copy, below)
+ *   attachments/<date>-<subject>-<hash>/<name>       each attachment, once, as a file (a data file is summarised
+ *                                                   into sources/data/ and held instead, 8.4.1)
+ *
+ * Small inline images (signature logos) stay inside the email. An email whose subject or text carries what a folio
+ * must not hold (3.7) is kept as a text copy, and its original is held temporarily. `item.summary` is a summary
+ * written by whoever is filing it (an agent that read the thread, say); a host may add one later
+ * (setEmailSummary).
+ */
+async function fileEmail(folio, item, c, { actor, via, record, day }) {
+  const fs = folio.fs;
+  const bytes = toBytes(item.data ?? item.text);
+  const eml = c.format === 'eml';
+  const headers = eml ? parseEmailHeaders(peek(bytes, 65536)) || {} : {};
+  const h = await shortHash(headers.message_id ? headers.message_id.trim() : bytes);
+  const what = headers.subject ? `“${headers.subject}”` : 'the email';
+  const existing = (await fs.list(COMMS_DIR)).find((p) => isEmailPath(p) && p.includes(`-${h}.`));
+  if (existing) {
+    // Filed already (forwarded in, say): a summary brought with it now is still worth keeping.
+    let summarised = false;
+    if (item.summary && /\.email\.json$/.test(existing)) summarised = Boolean(await setEmailSummary(folio, existing, item.summary, { actor, onlyIfMissing: true }).catch(() => null));
+    return [{ kind: 'email', path: existing, email: headers, duplicate: true, summary: `${what} is already in this folio${summarised ? '; added the summary' : ''}` }];
   }
-  const rewrite = Object.keys(removed).length > 0 || attachments.some((a) => a.data);
-  return { rewrite, removed, body, attachments };
+  const at = isoDate(headers.date) || folio.now();
+  const slug = slugify(headers.subject || (item.name || '').replace(/\.[^.]+$/, ''), 48) || 'email';
+  const stem = `${day(at)}-${slug}-${h}`;
+  const path = `${COMMS_DIR}/${stampOf(at)}-${slug}-${h}.email.json`;
+  const original = { path: `${EMAIL_SOURCES}/${stem}.${c.format}`, received_size: bytes.byteLength };
+  const attachments = [];
+  const extra = [];
+  let removed = {};
+  let full = '';
+  if (!eml) {
+    await fs.write(original.path, bytes, { ifMatch: null, contentType: 'application/vnd.ms-outlook' });
+    original.not_read = 'Outlook .msg files are kept but not read, so not checked';
+  } else {
+    const raw = binaryString(bytes);
+    const utf8 = peek(bytes, bytes.length);
+    const body = parseEmail(utf8)?.text || '';
+    removed = prohibitedIn(`${headers.subject || ''}\n${body}`);
+    const textCopy = Object.keys(removed).length > 0;
+    const placed = new Map();
+    for (const part of emailFileParts(raw).filter(detachable)) {
+      const data = part.bytes();
+      const name = safeName(part.name);
+      if (dataFormat({ name, type: part.type, bytes: data })) {
+        // A data file: summarised and held like any other (8.4.1); the email points at its summary.
+        const [r] = await addItem(folio, { name, type: part.type, data }, { actor, via: `${via}/email-attachment` });
+        attachments.push({ name: part.name, type: part.type, size: part.size, path: r.path, data: true, ...(r.file ? { file: r.file } : {}) });
+        extra.push(r);
+        placed.set(part.index, { path: r.path });
+        continue;
+      }
+      const scrubbed = scrubFile(name, data);
+      for (const [k, v] of Object.entries(scrubbed.removed)) removed[k] = (removed[k] || 0) + v;
+      const p = await createUnique(fs, `attachments/${stem}`, name, scrubbed.bytes, part.type || undefined);
+      attachments.push({ name: part.name, type: part.type, size: part.size, path: p, ...(part.inline ? { inline: true } : {}), ...(scrubbed.total ? { removed: scrubbed.removed } : {}) });
+      placed.set(part.index, { path: p, sha256: hex(await crypto.subtle.digest('SHA-256', data)) });
+    }
+    let kept = bytes;
+    if (textCopy) {
+      // The email carries what a folio must not hold: keep a text copy, hold the original.
+      const held = await holdBytes(folio, bytes, { name: `${stem}.eml`, type: 'message/rfc822', actor, via });
+      kept = enc.encode(emailCopy(utf8, { removed, body }, held, attachments));
+      Object.assign(original, { copy: 'text', held: held || { where: 'not_kept' } });
+    } else if (placed.size) {
+      kept = binaryBytes(detachParts(raw, placed));
+      original.copy = 'attachments_as_files';
+    }
+    original.size = kept.byteLength;
+    await fs.write(original.path, kept, { ifMatch: null, contentType: 'message/rfc822' });
+    full = parseEmail(peek(kept, kept.length))?.text || '';
+  }
+  const fwd = forwardedHeaders(full);
+  const cleaned = cleanEmailText(full);
+  const text = cleaned.text.slice(0, EMAIL_TEXT_CHARS);
+  const head = {};
+  for (const [k, v] of Object.entries(headers)) head[k] = typeof v === 'string' ? scrubText(v).text : v;
+  const summary = item.summary ? emailSummary(item.summary, { actor, at: folio.now() }) : null;
+  const sender = emailAddress(headers.from) || headers.from || null;
+  const entry = {
+    at,
+    kind: 'email',
+    author: { type: 'email', id: sender },
+    via,
+    ...(actor && actor.type !== 'unknown' && actor.id !== sender ? { filed_by: summaryBy(actor) } : {}),
+    headers: head,
+    ...(fwd ? { forwarded: Object.fromEntries(['from', 'to', 'cc', 'date', 'subject'].filter((k) => fwd[k]).map((k) => [k, fwd[k]])) } : {}),
+    text,
+    ...(cleaned.trimmed ? { trimmed: true } : {}),
+    ...(full.length > text.length ? { full_chars: full.length } : {}),
+    ...(summary ? { summary } : {}),
+    attachments,
+    original,
+  };
+  await fs.write(path, json(entry), { ifMatch: null, contentType: 'application/json' });
+  await record({ kind: 'email', path, original: original.path, original_name: item.name, email: headers, ...(attachments.length ? { attachments: attachments.map((a) => a.path) } : {}), ...(Object.keys(removed).length || original.copy === 'text' || original.not_read ? { privacy: { removed, ...(original.held ? { held: original.held } : {}), ...(original.not_read ? { scanned: false } : {}) } } : {}) });
+  if (folio.onMessage) {
+    // Tell the host (it may pass the email on to the folio's CCs, or summarise it): the text as filed, never a held original.
+    await folio.onMessage({ path, kind: 'email', at, author: { type: 'email', id: sender, ...(actor?.id ? { forwarded_by: actor.id } : {}) }, via, subject: head.subject || null, from: head.from || null, to: head.to || null, text: full.slice(0, 20000), original: original.path, summarised: Boolean(summary) });
+  }
+  const files = attachments.filter((a) => !a.data).length;
+  const data = attachments.filter((a) => a.data).length;
+  let said = `Filed ${what} in comms; the email itself is ${original.path}`;
+  if (files) said += `, ${files === 1 ? 'its attachment' : `its ${files} attachments`} in attachments/${stem}/`;
+  if (data) said += `; ${data === 1 ? 'a data attachment was' : `${data} data attachments were`} summarised`;
+  if (original.copy === 'text') said += `; kept as a text copy without ${describeRemoved(removed)}, ${heldPhrase(original.held, 'the original')}`;
+  else if (Object.keys(removed).length) said += ` (removed ${describeRemoved(removed)} from attachments)`;
+  return [{ kind: 'email', path, original: original.path, attachments: attachments.map((a) => a.path), email: headers, ...(original.copy === 'text' ? { privacy: { copy: true, removed, held: original.held } } : {}), summary: said }, ...extra];
 }
 
 const DROPPED_HEADERS = /^(content-type|content-transfer-encoding|content-disposition|mime-version|content-id)\s*:/i;

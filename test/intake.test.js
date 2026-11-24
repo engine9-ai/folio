@@ -52,8 +52,14 @@ test('a repository URL is listed once; a second drop reports the duplicate', asy
 test('an email is filed in comms by date and subject, once, with provenance', async () => {
   const { folio, fs } = await make();
   const [r] = await folio.add({ name: 'Donate.eml', data: bytes(EML) }, { actor, via: 'test' });
-  assert.match(r.path, /^comms\/2026-11-02-donate-button-[0-9a-f]{8}\.eml$/);
-  assert.equal((await fs.read(r.path)).text, EML); // original kept byte for byte
+  assert.match(r.path, /^comms\/2026-11-02-134100-donate-button-[0-9a-f]{8}\.email\.json$/);
+  assert.match(r.original, /^sources\/email\/2026-11-02-donate-button-[0-9a-f]{8}\.eml$/);
+  assert.equal((await fs.read(r.original)).text, EML); // the email itself, byte for byte
+  const rec0 = JSON.parse((await fs.read(r.path)).text);
+  assert.equal(rec0.kind, 'email');
+  assert.equal(rec0.headers.subject, 'Donate button ❌');
+  assert.equal(rec0.text, 'The button spins.');
+  assert.equal(rec0.original.path, r.original);
   const [again] = await folio.add({ text: EML }, { actor });
   assert.equal(again.duplicate, true);
   assert.equal(again.path, r.path);

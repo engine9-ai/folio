@@ -19,7 +19,7 @@ const USAGE = `folio: work with folio folders
   folio overview <dir>
   folio ready <dir>                                    folios inside that could be started now
   folio add <dir> <file | folder | url | "text"> ... [--folder notes] [--as markdown|html|text|json|import|comment|update|file]
-      files the item where it belongs: repo URL -> repositories, .eml -> comms,
+      files the item where it belongs: repo URL -> repositories, .eml -> comms (record) + sources/email,
       other links -> sources/links, text -> notes, files -> attachments,
       data files and logs -> a summary in sources/data, the file itself held in ~/.folio/hold
       (or FOLIO_HOLD_DIR, or --hold-dir) for 30 days. See GUIDE.md for what folios must not hold.

@@ -8,7 +8,9 @@ import { authorChannel, ccAudience, ccKey, findCc } from './cc.js';
  * The extension says what kind of message a file is; the name starts with its date and time, so the folder lists
  * in order and a conversation reads top to bottom without visiting several folders:
  *
- *   comms/2026-11-02-donate-button-broken-1a2b3c4d.eml        an email, as received (or a text copy, spec 3.7)
+ *   comms/2026-11-02-091500-donate-button-broken-1a2b3c4d.email.json   an email: who, when, what they wrote, a
+ *                                                              summary, its attachments; the email itself is in
+ *                                                              sources/email/ (intake.js fileEmail)
  *   comms/2026-11-09-153012-pat-confirm-the-split.comment.json   a comment
  *   comms/2026-11-09-160000-weekly-status.update.json         a status update
  *   comms/2026-11-09-161500-ran-the-pii-scan.agent.json        something an agent reports
@@ -39,7 +41,9 @@ export const MESSAGE_KINDS = Object.freeze(['comment', 'update', 'agent', 'chat'
 export const COMMS_KINDS = Object.freeze([...MESSAGE_KINDS, 'email', 'summary']);
 
 const MESSAGE_FILE = /\.(comment|update|agent|chat)\.json$/i;
-const EMAIL_FILE = /\.(eml|msg)$/i;
+// Emails filed before 1.9 are the .eml (or .msg) itself in comms/; they are still read.
+const EMAIL_FILE = /\.(eml|msg|email\.json)$/i;
+const EMAIL_RECORD = /\.email\.json$/i;
 const SUMMARY_FILE = /\.summary\.md$/i;
 
 /**
@@ -130,6 +134,75 @@ async function refHash(s) {
   return [...d.slice(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * An email's record (comms/*.email.json) as a conversation item, shaped like an email read from an .eml so the
+ * thread rules treat both alike. `text` is what the sender wrote; `summary` a summary, when there is one;
+ * `original` the email itself.
+ */
+function emailItem(path, m, maxChars) {
+  const h = m.headers || {};
+  const text = String(m.text || '');
+  return {
+    kind: 'email',
+    path,
+    at: m.at || isoOf(h.date) || dateFromName(path),
+    author: m.author || { type: 'email', id: h.from || null },
+    from: h.from || null,
+    to_header: h.to || null,
+    ...(h.cc ? { cc_header: h.cc } : {}),
+    subject: h.subject || null,
+    ...(m.forwarded?.from ? { forwarded_from: m.forwarded.from } : {}),
+    text: text.slice(0, maxChars),
+    ...(text.length > maxChars ? { truncated: true } : {}),
+    ...(m.trimmed ? { cleaned: true } : {}),
+    ...(m.summary?.text ? { summary: m.summary.text, summary_by: m.summary.by || null } : {}),
+    ...(Array.isArray(m.attachments) && m.attachments.length ? { attachments: m.attachments.map((a) => a.path).filter(Boolean) } : {}),
+    ...(m.original?.path ? { original: m.original.path } : {}),
+    ...(m.full_chars ? { full_chars: m.full_chars } : {}),
+  };
+}
+
+function parseRecord(cur) {
+  if (!cur) return null;
+  try {
+    const m = JSON.parse(cur.text);
+    return m && typeof m === 'object' ? m : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Is this an email's record in comms/ (as filed from 1.9), rather than an .eml kept there? */
+export const isEmailRecordPath = (p) => EMAIL_RECORD.test(p) && String(p).startsWith(`${COMMS_DIR}/`) && !String(p).slice(COMMS_DIR.length + 1).includes('/');
+
+/**
+ * Give an email in comms/ a summary, or replace it: what someone who read it (an agent, a person, the host's model)
+ * says it is about. The email and what its sender wrote are unchanged; the summary says who wrote it. `text` empty
+ * removes it. `onlyIfMissing` keeps a summary already there (a host's model never replaces an agent's or a
+ * person's). Returns { path, summary } (summary null when removed), or null when one was kept.
+ */
+export async function setEmailSummary(folio, path, text, { actor = null, by = null, onlyIfMissing = false } = {}) {
+  const p = String(path || '').replace(/^\/+/, '');
+  if (!isEmailRecordPath(p)) throw new ValidationError('Give the path of an email in comms/ (comms/*.email.json); emails filed before Folio 1.9 have no record to summarise');
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const cur = await folio.fs.read(p);
+    const m = parseRecord(cur);
+    if (!m) throw new ValidationError(`${p} is not an email in this folio`);
+    if (onlyIfMissing && m.summary?.text) return null;
+    const { text: clean } = scrubText(String(text || '').trim());
+    const actorRef = actor ? { type: actor.type || 'unknown', id: actor.id ?? null, ...(actor.name ? { name: actor.name } : {}), ...(actor.on_behalf_of ? { on_behalf_of: actor.on_behalf_of } : {}) } : { type: 'unknown' };
+    if (clean) m.summary = { text: clean.slice(0, 4000), by: by || actorRef, at: folio.now() };
+    else delete m.summary;
+    try {
+      await folio.fs.write(p, json(m), { ifMatch: cur.etag, contentType: 'application/json' });
+      return { path: p, summary: m.summary || null };
+    } catch (e) {
+      if (e?.code !== 'conflict') throw e;
+    }
+  }
+  throw new ValidationError('Someone else changed that email’s summary at the same time; try again');
+}
+
 /** Emails are in comms/, beside the other messages. */
 export const isEmailPath = (p) => EMAIL_FILE.test(p) && p.startsWith(`${COMMS_DIR}/`) && !p.slice(COMMS_DIR.length + 1).includes('/');
 
@@ -150,6 +223,11 @@ export async function readComms(folio, { limit = 200, maxChars = 4000, read, cc 
   for (const [i, path] of paths.entries()) {
     const kind = commsKindOf(path);
     const cur = files[i];
+    if (kind === 'email' && EMAIL_RECORD.test(path)) {
+      const m = parseRecord(cur);
+      if (m) items.push(emailItem(path, m, maxChars));
+      continue;
+    }
     if (kind === 'email') {
       const parsed = cur ? parseEmail(cur.text) : null;
       const full = parsed?.text || '';

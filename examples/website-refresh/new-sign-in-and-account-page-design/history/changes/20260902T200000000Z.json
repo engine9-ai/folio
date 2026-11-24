@@ -1,5 +1,5 @@
 {
-  "at": "2026-09-02T19:00:00.000Z",
+  "at": "2026-09-02T20:00:00.000Z",
   "actor": {
     "type": "user",
     "id": "sam@example.com",
@@ -13,7 +13,7 @@
       "to": [
         {
           "type": "blocked_by",
-          "target": "fol-jrwdp2"
+          "target": "fol-x4ygs8"
         }
       ]
     }

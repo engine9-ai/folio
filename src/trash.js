@@ -43,7 +43,23 @@ async function copy(fs, from, to) {
 }
 
 /**
- * Move a file or folder (every file under it) to the Trash. Returns the entry: { id, at, by, path, kind, files }.
+ * An email's record in comms/ goes to the Trash with the email itself and its attachments (not with data summaries,
+ * which are items of their own), so putting it back brings all of it back.
+ */
+async function emailCompanions(fs, p, all) {
+  if (!/^comms\/[^/]+\.email\.json$/.test(p)) return [];
+  try {
+    const m = JSON.parse((await fs.read(p))?.text || '{}');
+    const want = [m.original?.path, ...(m.attachments || []).filter((a) => !a.data).map((a) => a.path)].filter(Boolean);
+    return [...new Set(want)].filter((f) => all.includes(f) && f !== p);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Move a file or folder (every file under it) to the Trash. Moving an email in comms/ takes the email itself and its
+ * attachments with it. Returns the entry: { id, at, by, path, kind, files }.
  */
 export async function moveToTrash(folio, path, { actor } = {}) {
   const p = normalizePath(path);
@@ -52,7 +68,7 @@ export async function moveToTrash(folio, path, { actor } = {}) {
   const fs = folio.fs;
   const all = await fs.list('');
   const isFile = all.includes(p);
-  const files = isFile ? [p] : all.filter((f) => f.startsWith(`${p}/`) && !isTrashPath(f));
+  const files = isFile ? [p, ...(await emailCompanions(fs, p, all))] : all.filter((f) => f.startsWith(`${p}/`) && !isTrashPath(f));
   if (!files.length) throw new NotFoundError(p);
   for (const f of files) {
     const no = trashRefusal(f);

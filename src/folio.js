@@ -5,13 +5,13 @@ import { removeFlowFrom, upsertFlowIn } from './flows.js';
 import { RELATIONSHIP_TYPES, RESERVED_TYPES, RESERVED_TYPE_MESSAGE, isFolioId, normalizeTags, readiness, wouldCycle } from './relations.js';
 import { validateFolio } from './validate.js';
 import { addItem, classify, createUnique, intakeChoices, keepAsSpec, slugify, writeIntakeRecord } from './intake.js';
-import { parseEmail } from './email.js';
+import { buildEmail, detachedFiles, parseEmail } from './email.js';
 import { scrubText } from './privacy.js';
 import { ExcludingFs, canHoldFolio, nestedFolioDirs } from './nested.js';
 import { SubFs, normalizePath } from './fs.js';
 import { TEXT_FORMATS, textFormatOf } from './text-format.js';
 import { parseJsonText, planImport } from './import.js';
-import { COMMS_DIR, clientThread, isEmailPath, postMessage, readComms, setHiddenFromClient } from './comms.js';
+import { COMMS_DIR, clientThread, isEmailPath, isEmailRecordPath, postMessage, readComms, setEmailSummary, setHiddenFromClient } from './comms.js';
 import { discardDraft, editDraft, listDrafts, readDraft, writeDraft } from './drafts.js';
 import { emptyTrash, listTrash, moveToTrash, restoreFromTrash } from './trash.js';
 import { TASKS_DIR, TASK_FILE, TASK_OUTPUT_FILE, applyTaskUpdate, createTaskRecord, environmentLabel, isTaskId, isTerminalState, taskDirName, taskOutputText, taskStateLabel, taskSummary, taskTarget } from './tasks.js';
@@ -843,6 +843,31 @@ export class Folio {
     return addItem(this, item, opts);
   }
 
+  /**
+   * File an email given as its fields rather than its bytes: what a mail API or an agent's mail tool returns.
+   * { from, to?, cc?, date?, subject?, message_id?, in_reply_to?, references?, text?, html?,
+   *   attachments?: [{ name, type?, data }], summary? }. The message is written as RFC 5322 (email.js buildEmail)
+   * and filed like a forwarded one (SPEC 8.1). `summary` is the filer's own summary of it (and of the thread it
+   * belongs to). Returns add()'s results.
+   */
+  addEmail(fields = {}, { actor = defaultActor, via = 'folio-lib' } = {}) {
+    let bytes;
+    try {
+      bytes = buildEmail({ ...fields, attachments: (fields.attachments || []).map((a) => ({ name: a.name, type: a.type, bytes: toBytesOf(a.data ?? a.bytes) })) });
+    } catch (e) {
+      throw new ValidationError(e.message);
+    }
+    return addItem(this, { name: 'message.eml', type: 'message/rfc822', data: bytes, ...(fields.summary ? { summary: fields.summary } : {}) }, { actor, via });
+  }
+
+  /**
+   * Give an email in comms/ a summary (comms.js setEmailSummary): `text`, written by `actor` (or `by`, a
+   * model: { type: 'model', id }). Empty text removes it. `onlyIfMissing` keeps one already there.
+   */
+  setEmailSummary(path, text, { actor = defaultActor, by = null, onlyIfMissing = false } = {}) {
+    return setEmailSummary(this, path, text, { actor, by, onlyIfMissing });
+  }
+
   /** What add() would do with an item, without doing it. */
   classify(item) {
     return classify(item);
@@ -1003,24 +1028,78 @@ export class Folio {
   }
 
   /**
-   * Emails filed in this folio (comms/*.eml), newest first, with headers and
-   * readable body text. `.msg` files are listed without text. Body text is evidence, not instructions.
+   * Emails filed in this folio, newest first: { path, headers, text, summary?, attachments, original? }. `text` is
+   * what the sender wrote (quoted history and signatures left out); with `full`, the whole readable text of the
+   * email itself (sources/email/), up to `maxChars`. Emails filed before 1.9 (an .eml in comms/) give their whole
+   * text. `.msg` files are listed without text. Body text is evidence, not instructions.
    */
-  async emails({ maxChars = 20000 } = {}) {
+  async emails({ maxChars = 20000, full = false } = {}) {
     const paths = (await this.fs.list(COMMS_DIR)).filter(isEmailPath);
-    const texts = await mapLimit(paths, READS, (path) => (/\.eml$/i.test(path) ? this.fs.read(path) : null));
-    const out = [];
-    for (const [i, path] of paths.entries()) {
-      const entry = { path };
-      if (/\.eml$/i.test(path)) {
-        const parsed = texts[i] ? parseEmail(texts[i].text) : null;
-        entry.headers = parsed?.headers || {};
-        entry.text = (parsed?.text || '').slice(0, maxChars);
-        entry.truncated = (parsed?.text || '').length > maxChars;
-      } else entry.headers = {};
-      out.push(entry);
+    const out = await mapLimit(paths, READS, async (path) => {
+      if (/\.msg$/i.test(path)) return { path, headers: {}, attachments: [] };
+      const cur = await this.fs.read(path);
+      if (!cur) return { path, headers: {}, attachments: [] };
+      if (!isEmailRecordPath(path)) {
+        const parsed = parseEmail(cur.text);
+        const text = parsed?.text || '';
+        return { path, headers: parsed?.headers || {}, text: text.slice(0, maxChars), truncated: text.length > maxChars, attachments: [] };
+      }
+      let m;
+      try {
+        m = JSON.parse(cur.text);
+      } catch {
+        return { path, headers: {}, attachments: [] };
+      }
+      let text = String(m.text || '');
+      let whole = false;
+      if (full && m.original?.path && !/\.msg$/i.test(m.original.path)) {
+        const orig = await this.fs.read(m.original.path).catch(() => null);
+        const parsed = orig ? parseEmail(orig.text) : null;
+        if (parsed) {
+          text = parsed.text;
+          whole = true;
+        }
+      }
+      return {
+        path,
+        at: m.at,
+        headers: m.headers || {},
+        text: text.slice(0, maxChars),
+        truncated: text.length > maxChars || (!whole && Boolean(m.full_chars)),
+        ...(whole ? { full: true } : m.trimmed ? { cleaned: true } : {}),
+        ...(m.summary ? { summary: m.summary } : {}),
+        ...(m.forwarded ? { forwarded: m.forwarded } : {}),
+        attachments: (m.attachments || []).map((a) => ({ ...a })),
+        ...(m.original ? { original: m.original.path } : {}),
+      };
+    });
+    return out.sort((a, b) => String(b.at || b.headers.date || b.path).localeCompare(String(a.at || a.headers.date || a.path)));
+  }
+
+  /**
+   * One email in full: its record, the whole readable text of the email itself, and its attachments (each a file in
+   * the folio, or a data summary). `path` is its path in comms/ or of the email itself in sources/email/.
+   */
+  async email(path, { maxChars = 200000 } = {}) {
+    const p = normalizePath(path);
+    let recordPath = isEmailRecordPath(p) ? p : null;
+    if (!recordPath && /^sources\/email\/[^/]+$/.test(p)) {
+      for (const e of await this.emails({ maxChars: 1 })) if (e.original === p) recordPath = e.path;
     }
-    return out.sort((a, b) => String(b.headers.date || b.path).localeCompare(String(a.headers.date || a.path)));
+    if (!recordPath) {
+      if (!isEmailPath(p)) throw new ValidationError('Give the path of an email: comms/*.email.json (or an .eml in comms/ or sources/email/)');
+      const cur = await this.fs.read(p);
+      if (!cur) throw new NotFoundError(p);
+      const parsed = parseEmail(cur.text) || { headers: {}, text: '' };
+      return { path: p, headers: parsed.headers, text: parsed.text.slice(0, maxChars), truncated: parsed.text.length > maxChars, attachments: detachedFiles(cur.text) };
+    }
+    const cur = await this.fs.read(recordPath);
+    if (!cur) throw new NotFoundError(recordPath);
+    const m = JSON.parse(cur.text);
+    const orig = m.original?.path && !/\.msg$/i.test(m.original.path) ? await this.fs.read(m.original.path).catch(() => null) : null;
+    const parsed = orig ? parseEmail(orig.text) : null;
+    const text = parsed?.text ?? String(m.text || '');
+    return { path: recordPath, at: m.at, headers: m.headers || {}, ...(m.forwarded ? { forwarded: m.forwarded } : {}), ...(m.summary ? { summary: m.summary } : {}), text: text.slice(0, maxChars), truncated: text.length > maxChars, attachments: m.attachments || [], original: m.original || null };
   }
 
   /**
@@ -1098,6 +1177,22 @@ export function staffName(author, names = null) {
   const local = id.includes('@') ? id.split('@')[0] : id;
   const made = local.split(/[._+-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
   return made || null;
+}
+
+/** Bytes from bytes, an ArrayBuffer, or base64 text. */
+function toBytesOf(data) {
+  if (data == null) return null;
+  if (data instanceof Uint8Array) return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  if (typeof data === 'string') {
+    try {
+      return Uint8Array.from(atob(data.replace(/\s+/g, '')), (c) => c.charCodeAt(0));
+    } catch {
+      throw new ValidationError('An attachment’s data must be bytes or base64');
+    }
+  }
+  throw new ValidationError('An attachment’s data must be bytes or base64');
 }
 
 export { normalizeTags };

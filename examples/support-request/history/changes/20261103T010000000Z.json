@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-03T03:00:00.000Z",
+  "at": "2026-11-03T01:00:00.000Z",
   "actor": {
     "type": "user",
     "id": "robin@example.com",
@@ -8,13 +8,9 @@
   "via": "example",
   "type": "updated",
   "changes": {
-    "status": {
-      "from": "active",
-      "to": "completed"
-    },
-    "resolution": {
+    "owner": {
       "from": null,
-      "to": "completed"
+      "to": "robin@example.com"
     }
   }
 }

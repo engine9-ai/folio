@@ -12,17 +12,17 @@
       "from": [
         {
           "type": "blocked_by",
-          "target": "fol-7x6xhq"
+          "target": "fol-rj8bkx"
         }
       ],
       "to": [
         {
           "type": "blocked_by",
-          "target": "fol-7x6xhq"
+          "target": "fol-rj8bkx"
         },
         {
           "type": "blocked_by",
-          "target": "fol-zcmdyy"
+          "target": "fol-zhjnt4"
         }
       ]
     }

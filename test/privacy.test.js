@@ -226,14 +226,18 @@ test('an email with a card number and a data attachment is kept as a text copy',
   assert.equal(email.kind, 'email');
   assert.equal(data.kind, 'data');
   assert.equal(data.records, 40);
-  assert.match(email.summary, /text copy without 1 card number and data attachments \(summarised\); the original is held/);
-  const copy = (await fs.read(email.path)).text;
+  assert.match(email.summary, /data attachment was summarised; kept as a text copy without 1 card number, the original is held/);
+  const copy = (await fs.read(email.original)).text;
   assert.match(copy, /^From: Pat <pat@client\.example>\r\n/);
   assert.match(copy, /X-Folio-Copy: text copy; removed 1 card number; original held until 2026-12-07/);
   assert.match(copy, /Content-Type: text\/plain; charset=utf-8/);
   assert.doesNotMatch(copy, /4539 1488 0343 6467|multipart|base64/);
   assert.match(copy, /donors\.csv: sources\/data\//);
   assert.match(copy, /screen\.png: attachments\//);
+  const rec = JSON.parse((await fs.read(email.path)).text);
+  assert.doesNotMatch(JSON.stringify(rec), /4539 1488 0343 6467/);
+  assert.deepEqual(rec.attachments.map((a) => [a.name, Boolean(a.data)]), [['donors.csv', true], ['screen.png', false]]);
+  assert.equal(rec.original.copy, 'text');
   assert.equal(hold.items.size, 2, 'the original email and the CSV');
   const emails = await folio.emails();
   assert.match(emails[0].text, /paid with \*\*\*\* \*\*\*\* \*\*\*\* 6467/);
@@ -243,7 +247,7 @@ test('an ordinary email is stored exactly as received', async () => {
   const { fs, folio, hold } = await make();
   const raw = 'From: Pat <pat@client.example>\r\nSubject: Button\r\nDate: Mon, 02 Nov 2026 13:41:00 +0000\r\nMessage-ID: <b@x>\r\n\r\nCall me at 415-867-5309.\r\n';
   const [r] = await folio.add({ name: 'b.eml', data: enc(raw) }, { actor });
-  assert.equal((await fs.read(r.path)).text, raw);
+  assert.equal((await fs.read(r.original)).text, raw);
   assert.equal(hold.items.size, 0);
 });
 

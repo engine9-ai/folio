@@ -52,7 +52,9 @@ const { ok, problems } = await folio.validate();
 
 // Add anything; the folio decides where it goes (SPEC 8.6).
 await folio.add({ url: 'https://github.com/engine9-ai/folio' }, { actor });             // listed in folio.json
-await folio.add({ name: 'report.eml', data: emlBytes }, { actor });                      // comms/ (with comments, updates and agents' reports)
+await folio.add({ name: 'report.eml', data: emlBytes }, { actor });                      // a record in comms/; the email in sources/email/, attachments as files
+await folio.addEmail({ from, to, subject, date, message_id, text, summary }, { actor });  // the same, from a mail API's fields
+await folio.setEmailSummary(recordPath, 'Pat confirmed Thursday.', { actor });         // who wrote it is kept
 await bug.folio.add({ name: 'screenshot.png', data: pngBytes }, { actor });           // that folio's attachments/
 await folio.add({ name: 'donors.csv', data: csvBytes }, { actor });                       // summary in sources/data/, original to `hold`
 await bug.folio.comment('Reproduced on iOS', { actor });                           // comms/…comment.json

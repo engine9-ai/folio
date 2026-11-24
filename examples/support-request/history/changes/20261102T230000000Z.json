@@ -2,15 +2,29 @@
   "at": "2026-11-02T23:00:00.000Z",
   "actor": {
     "type": "user",
-    "id": "robin@example.com",
-    "name": "Robin (engineer)"
+    "id": "sam@example.com",
+    "name": "Sam (account manager)"
   },
   "via": "example",
   "type": "updated",
   "changes": {
-    "owner": {
+    "type": {
       "from": null,
-      "to": "robin@example.com"
+      "to": "bug"
+    },
+    "outcome": {
+      "from": null,
+      "to": "Donations complete on Safari, confirmed by the customer."
+    },
+    "links": {
+      "from": null,
+      "to": [
+        {
+          "type": "source",
+          "label": "Customer's original email",
+          "path": "sources/email/2026-11-02-donate-button-broken-c363ad49.eml"
+        }
+      ]
     }
   }
 }
