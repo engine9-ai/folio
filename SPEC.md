@@ -247,7 +247,7 @@ agents and new teammates read it instead of hunting for it (`context.js`):
 - **`folder.json`** beside a folder's `README.md`: `{ "format": "folio.folder", "connections": [...], "contacts":
   [...], "client_approvers": [...] }`. A connection is a reference, like a folio's (3.2): `type` and `alias`, then
   whatever names it (`account_id`, `url`, `host`, `site`), `role` (`source`, `destination`, `both`, `tool`) and
-  `credentials`, which says where a secret lives (a password-manager item), never the secret. Fields named like
+  `credentials`, which says where a secret lives (a password-manager item, or a Secrets reference `secrets:<vault>/<name>` that a host may show to each person with their own access there), never the secret. A connection of type `secrets` names a Secrets `vault` (and optional `prefix`). Fields named like
   secrets (`password`, `token`, `api_key`...) and values that look like credentials are refused. `contacts` are the
   client's people (`name`, `email`, `role`, `answers`); `client_approvers` are the staff who approve and send client
   messages (5.7.3).

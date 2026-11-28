@@ -182,8 +182,8 @@ every folio inside it: `folder.json` (the folder's **Context** page) and an `AGE
 | --- | --- |
 | engine9 account(s) | connection `{ "type": "engine9", "alias": "main", "account_id": "acme_main", "parent_account_id": "acme" }` |
 | MCP endpoint | connection `{ "type": "mcp", "alias": "engine9-data", "url": "https://data.engine9.ai/mcp" }` |
-| Source systems | connection with `"role": "source"`: host, folder, file pattern, `credentials` (the password-manager item) |
-| Destination systems | connection with `"role": "destination"`: CRM site, `credentials` (the password-manager item) |
+| Source systems | connection with `"role": "source"`: host, folder, file pattern, `credentials` (where the login lives) |
+| Destination systems | connection with `"role": "destination"`: CRM site, `credentials` (where the login lives) |
 | Client contacts and roles | `contacts`: name, email, role, what they answer |
 | Client message approvers | `client_approvers`: staff emails |
 | Agent instructions | `AGENTS.md` on the client's folder |
@@ -192,7 +192,10 @@ A folder inside can add or override a connection by its alias, and a folio's own
 A folio is a folder too: it can have `contacts` of its own (the people on this piece of work who are not on every
 folio for the client), added with `set_context` and `folio_id`; they merge with the folders' contacts, the folio's
 winning for the same email.
-Never a password, key or token: `credentials` says where one lives. `review_folio` and `get_context` show the
+Never a password, key or token: `credentials` says where one lives. When it is in Secrets, write
+`"credentials": "secrets:<vault>/<name>"` (or paste the secret's page URL), and add a connection
+`{ "type": "secrets", "alias": …, "vault": … }` to show a whole vault: the folio page then shows those
+secrets to each teammate with their own Secrets access. Otherwise name the password-manager item. `review_folio` and `get_context` show the
 context with what is still unset (`slots.unset`): ask the team for exactly those at the start and record the
 answers with `set_context`; ask the client (in a draft) only what only the client knows.
 
